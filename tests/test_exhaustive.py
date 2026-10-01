@@ -51,5 +51,5 @@ def test_exhaustive_declares_its_limit():
 
 def test_canonical_payment_oracle(bundle):
     res = ExecutionGuard().run(ExhaustiveSolver(), make_problem(bundle, ["paymentservice"]))
-    assert res.selected_plan == ("payment_fallback",) and res.metadata["candidates_total"] == 256
-    assert res.metadata["top_feasible"][1]["plan"] == ["payment_fallback", "suppress_emailservice"]
+    assert res.selected_plan == ("payment_fallback",) and res.metadata["candidates_total"] == 128
+    assert res.metadata["top_feasible"][1]["plan"] == ["checkout_backend_standby"]

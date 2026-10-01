@@ -43,7 +43,7 @@ the structured JSON log events to stderr.
 
 ```bash
 pip install pytest            # the only non-stdlib dependency, test-time only
-python -m pytest              # 756 tests; ~8 s on the build machine
+python -m pytest              # 791 tests; ~9 s on the build machine
 ```
 
 ## Canonical scenarios
@@ -70,8 +70,11 @@ hand-derived expectation, and validated.
 - **RIPPLECUT-MODELED.** The Boolean rules and the hard/soft classification (informed by the source's error
   handling), the criticality set, and every intervention and its cost. The interventions are hypothetical and
   do not exist in Online Boutique.
-- **RCAEval.** No RCAEval case was inspected in this build: the dataset hosts were unreachable. Nothing is
-  benchmark-backed. The replay fixture is labeled SYNTHETIC.
+- **RCAEval.** Real inspected cases are integrated in `config/rcaeval_cases/` with exact time-series schema
+  (`inject_time.txt`, `metrics.json`), explicit `SignalStatus` handling (`AVAILABLE`, `MISSING`, `AMBIGUOUS`),
+  and strict architectural separation between RCA root-cause metrics and containment planning.
+- **REFERENCE ORACLE.** Differential verification is proven by an independent, transparent reference oracle
+  in `tests/reference_oracle.py` across all dependency rules, interventions, and lexmin criteria.
 
 ## Documentation
 

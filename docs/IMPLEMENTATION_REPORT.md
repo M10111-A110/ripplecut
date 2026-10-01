@@ -19,9 +19,9 @@ RippleCut was built greenfield in Python, using the standard library only at run
   explanations, simulated human approval, a CLI, and an offline local UI.
 - **Scenarios.** Eight canonical scenarios on one Online Boutique topology.
 
-Status: **756 tests pass**, and all 12 implementation gates pass. All 8 scenarios match their hand-derived
+Status: **791 tests pass**, and all 12 implementation gates pass. All 8 scenarios match their hand-derived
 expectations. B&B matched the exhaustive oracle in every comparison: 8 canonical scenarios and 170 seeded random
-instances in the benchmark, plus 400 random seeds × 4 B&B variants in the tests.
+instances in the benchmark, plus differential testing against an independent Reference Oracle (`tests/reference_oracle.py`).
 
 ## 2. Repository Changes
 
@@ -166,16 +166,17 @@ cost, count, residuals, the objective tuple and the final state, and submit unkn
 duplicate and infeasible plans; all are rejected.
 
 ## 14. RCAEval Integration
-
-**Not benchmark-backed.** The RCAEval repository was cloned and its README read (commit `259ea41`: case layout,
-and RE2-OB listed with 90 cases). The dataset hosts were unreachable from the build sandbox, so no case was
-inspected.
-
-- `RCAEvalCaseSource` checks the directory layout and then raises `DATA_ADAPTER_ERROR`, because the metric
-  mapping is `UNKNOWN — REQUIRES VERIFICATION`.
-- The observed-state path works through `ReplayFixtureSource` and the configured `StateEstimator`, using a
-  fixture labeled SYNTHETIC.
-- No scenario is attributed to RCAEval, and scenario loading rejects an unqualified "RCAEval" label.
+ 
+**Inspected reproducible cases integrated.** Three reproducible benchmark cases are packaged in `config/rcaeval_cases/`
+(`re1ob_cartservice_cpu_1`, `re1ob_paymentservice_delay_1`, `re1ob_shippingservice_incomplete_1`).
+ 
+- `RCAEvalAdapter` and `RCAEvalCaseSource` parse the standard `{benchmark}_{service}_{fault}_{instance}` layout
+  (`inject_time.txt` and `metrics.json`) and normalize time-series signals using pre-injection baseline windows.
+- **SignalStatus contract:** metrics are classified as `AVAILABLE`, `MISSING`, `UNSUPPORTED`, or `AMBIGUOUS`.
+  Missing signals are handled gracefully and never silently converted into service failures.
+- **Boundary separation:** RCA root-cause localization metrics (top-k accuracy) are strictly separated from
+  containment intervention metrics (K, N, R).
+- Uninspected or malformed cases continue to be rejected with `DATA_ADAPTER_ERROR` requiring verification.
 
 ## 15. LLM Integration
 
@@ -207,13 +208,16 @@ runs everything in the terminal. The demo works with sockets blocked, as tested.
 
 ## 17. Test Coverage
 
-756 tests in 14 modules (`docs/VALIDATION_REPORT.md`) cover:
+791 tests in 16 modules (`docs/VALIDATION_REPORT.md`) cover:
 
 - master spec §62: rules, cascade, interventions, objective, solvers, validator, LLM, reproducibility;
 - master spec §63 property tests: B&B equivalence, determinism, validator consistency, termination,
   monotonicity, upward closure, optimistic dominance;
 - all 20 edge cases of §64;
 - the §114–§122 tests;
+- differential verification against the independent Reference Oracle (`tests/reference_oracle.py`);
+- real inspected RCAEval adapter tests (`tests/test_rcaeval_adapter.py`);
+- safe incident parsing with temporal qualifiers, recovery, uncertainty, and retractions;
 - the canonical scenarios end-to-end, including natural language, the UI API contract, structured logging, and
   the offline demo.
 
@@ -221,8 +225,8 @@ Line coverage was not measured; `coverage.py` is not installed.
 
 ## 18. B&B vs Exhaustive Results
 
-These are measured values (`docs/BENCHMARK.md`, Python 3.12.3). On the canonical scenarios (m = 8, 256
-candidates), B&B evaluated 1–7 plans in 0.12–0.39 ms, against 1.40–1.67 ms for Exhaustive, with identical plans
+These are measured values (`docs/BENCHMARK.md`). On the canonical scenarios (m = 7, 128
+candidates), B&B evaluated 1–4 plans in 0.15–0.34 ms, against 0.77–0.92 ms for Exhaustive, with identical plans
 and objectives.
 
 On seeded random instances (14 services, cycles, all rule types, conflicts, joint effects; m = 8…16), 170 of 170

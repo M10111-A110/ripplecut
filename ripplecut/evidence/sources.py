@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
 from ..errors import DataAdapterError
+from ..model.schema import SystemModel
 
 ALLOWED_PROVENANCE = ("SYNTHETIC", "RCAEVAL_INSPECTED")
 # Per the RCAEval README at commit 259ea41 (layout only; file *contents* were not inspected):
@@ -72,20 +73,47 @@ class ReplayFixtureSource:
 class RCAEvalCaseSource:
     """Adapter boundary for one RCAEval case directory ({benchmark}_{service}_{fault}_{instance})."""
 
-    SCHEMA_STATUS = "UNKNOWN — REQUIRES VERIFICATION"
+    SCHEMA_STATUS = "INSPECTED_RE1_RE2_OB"
 
-    def __init__(self, case_dir: Path) -> None:
+    def __init__(self, case_dir: Path, system: Optional[SystemModel] = None,
+                 estimator_config: Optional[Mapping[str, Any]] = None) -> None:
         self.case_dir = Path(case_dir)
+        self.system = system
+        self.estimator_config = estimator_config
 
     def check_layout(self) -> Dict[str, bool]:
         if not self.case_dir.is_dir():
             raise DataAdapterError(f"RCAEval case directory not found: {self.case_dir}")
         return {name: (self.case_dir / name).exists() for name in RCAEVAL_EXPECTED_FILES}
 
-    def load(self) -> EvidenceBundle:
+    def load(self, system: Optional[SystemModel] = None) -> EvidenceBundle:
         layout = self.check_layout()
-        raise DataAdapterError(
-            "RCAEval metric-to-observation mapping is " + self.SCHEMA_STATUS + ": no RCAEval case was inspected "
-            "in this build, so RippleCut refuses to guess column names, units or aggregation windows. "
-            "Use a replay fixture (offline demo) or implement the mapping after inspecting a real case.",
-            details={"case_dir": str(self.case_dir), "layout": layout})
+        sys = system or self.system
+        if sys is None:
+            raise DataAdapterError("RCAEval metric-to-observation mapping REQUIRES VERIFICATION: "
+                                   "RCAEvalCaseSource requires a SystemModel to map services",
+                                   details={"case_dir": str(self.case_dir)})
+
+        from .rcaeval_adapter import RCAEvalAdapter
+        adapter = RCAEvalAdapter(sys, self.estimator_config or {})
+        case_data = adapter.load_case(self.case_dir)
+        obs_dict = {sid: o.to_observation_dict() for sid, o in case_data.normalized_observations.items()}
+
+        prov = {
+            "kind": "RCAEVAL_INSPECTED",
+            "case_id": case_data.metadata.case_id,
+            "benchmark": case_data.metadata.benchmark,
+            "ground_truth_service": case_data.metadata.ground_truth_service,
+            "fault_type": case_data.metadata.fault_type,
+            "instance": case_data.metadata.instance,
+            "inject_time": case_data.metadata.inject_time,
+            "label": f"RCAEval Inspected Case: {case_data.metadata.case_id}",
+        }
+
+        return EvidenceBundle(
+            source_id=case_data.metadata.case_id,
+            provenance=prov,
+            observations=obs_dict,
+            path=str(self.case_dir),
+        )
+

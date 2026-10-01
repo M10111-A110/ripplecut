@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Tuple
 
 from ..errors import ErrorCode, RippleCutError
+from ..model.loader import REPO_ROOT, resolve_config_path
 from ..model.schema import ResourceLimits
 from .registry import SolverRegistry
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_POLICY_PATH = REPO_ROOT / "config" / "solver_policy.json"
+DEFAULT_POLICY_PATH = resolve_config_path("solver_policy.json")
 
 
 @dataclass(frozen=True)

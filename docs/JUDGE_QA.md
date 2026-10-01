@@ -53,7 +53,7 @@ while skipping subtrees that are provably illegal, provably infeasible, or prova
 are sound because the cascade is monotone. We also document a tempting bound that is *unsafe* and therefore not
 used.
 
-Measured on the canonical scenarios (m = 8, 256 plans), B&B evaluated 1–7 plans; on seeded random instances it
+Measured on the canonical scenarios (m = 7, 128 plans), B&B evaluated 1–4 plans; on seeded random instances it
 matched the oracle in all 170 comparisons (`docs/BENCHMARK.md`). Its worst case is still exponential; we claim
 exactness, not speed guarantees.
 
@@ -82,10 +82,13 @@ One honest limit: the validator shares the single engine by design, so it catche
 bugs. The engine is covered by hand-calculated tests and property tests.
 
 **What does RCAEval contribute?**
-In this build: nothing benchmark-backed. RCAEval is designed as an evidence layer (observations → state), never
-as the source of recommendations. Its dataset hosts were unreachable from the build environment, so no case was
-inspected. The adapter therefore refuses to guess a metric schema, and the observed-state demo uses a clearly
-labeled SYNTHETIC replay fixture. No scenario is attributed to RCAEval.
+RCAEval provides real inspected cases (`config/rcaeval_cases/`, e.g. `re1ob_cartservice_cpu_1`, `re1ob_paymentservice_delay_1`)
+with explicit multi-metric time-series data and injection timestamps. RippleCut enforces a strict boundary:
+1. Signal status: metrics are classified as `AVAILABLE`, `MISSING`, `UNSUPPORTED`, or `AMBIGUOUS`. Missing metrics are
+   never guessed or assumed to indicate failure.
+2. Separation of metrics: RCA localization accuracy evaluates anomaly detection, while containment metrics (cost K,
+   interventions N, residual failures R) evaluate safety interventions.
+3. Provenance: Every bundle is tagged with exact provenance (`RCAEVAL_INSPECTED` vs `SYNTHETIC_REPLAY`).
 
 **What are the limitations?**
 

@@ -20,7 +20,20 @@ from .schema import (DOWN, UP, ActionConflict, ActionUniverse, ConflictResolutio
 from .validation import validate_model
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MODEL_PATH = REPO_ROOT / "config" / "online_boutique_canonical.json"
+PKG_ROOT = Path(__file__).resolve().parents[1]
+
+
+def resolve_config_path(subpath: str) -> Path:
+    repo_path = REPO_ROOT / "config" / subpath
+    if repo_path.exists():
+        return repo_path
+    pkg_path = PKG_ROOT / "config" / subpath
+    if pkg_path.exists():
+        return pkg_path
+    return repo_path
+
+
+DEFAULT_MODEL_PATH = resolve_config_path("online_boutique_canonical.json")
 
 
 @dataclass(frozen=True)

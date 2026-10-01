@@ -67,20 +67,18 @@ None of these mechanisms exists in Online Boutique (PDF §7.1); their effects an
 
 | action | cost | effect | precondition on x(0) | label |
 |---|---|---|---|---|
-| checkout_backend_standby | 5 | paymentservice UP, shippingservice UP | none | RIPPLECUT-MODELED HYPOTHETICAL |
-| payment_fallback | 3 | paymentservice UP | paymentservice DOWN | RIPPLECUT-MODELED HYPOTHETICAL |
-| restart_checkoutservice | 1 | checkoutservice UP | checkoutservice DOWN | RIPPLECUT-MODELED |
-| restart_emailservice | 1 | emailservice UP | emailservice DOWN | RIPPLECUT-MODELED |
-| restore_currency_replica | 2 | currencyservice UP | currencyservice DOWN | RIPPLECUT-MODELED HYPOTHETICAL |
-| restore_productcatalog_replica | 4 | productcatalogservice UP | productcatalogservice DOWN | RIPPLECUT-MODELED HYPOTHETICAL |
-| shipping_fallback | 2 | shippingservice UP | shippingservice DOWN | RIPPLECUT-MODELED HYPOTHETICAL |
-| suppress_emailservice | 0 | emailservice DOWN | none | RIPPLECUT-MODELED |
+| checkout_backend_standby | 5 | paymentservice UP, shippingservice UP | none | RIPPLECUT-MODELED CONTAINMENT ACTION |
+| payment_fallback | 3 | paymentservice UP | paymentservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
+| restart_checkoutservice | 1 | checkoutservice UP | checkoutservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
+| restart_emailservice | 1 | emailservice UP | emailservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
+| restore_currency_replica | 2 | currencyservice UP | currencyservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
+| restore_productcatalog_replica | 4 | productcatalogservice UP | productcatalogservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
+| shipping_fallback | 2 | shippingservice UP | shippingservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
 
 Declared conflicts:
 
 * checkout_backend_standby + payment_fallback: INVALID_COMBINATION — Both redirect payment traffic; the model defines no composition, so the combination is rejected before simulation.
 * checkout_backend_standby + shipping_fallback: INVALID_COMBINATION — Both redirect shipping traffic; the model defines no composition, so the combination is rejected before simulation.
-* restart_emailservice + suppress_emailservice: DEFINED_JOINT_EFFECT — Explicit policy: when both are selected, suppression takes precedence and emailservice ends DOWN.
 
 ## What is not claimed
 

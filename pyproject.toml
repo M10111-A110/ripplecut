@@ -18,10 +18,11 @@ ripplecut = "ripplecut.cli:main"
 
 [tool.setuptools]
 packages = ["ripplecut", "ripplecut.model", "ripplecut.engine", "ripplecut.solvers", "ripplecut.validation",
-            "ripplecut.incident", "ripplecut.evidence", "ripplecut.explain", "ripplecut.ui"]
+            "ripplecut.incident", "ripplecut.evidence", "ripplecut.explain", "ripplecut.ui", "ripplecut.config"]
 
 [tool.setuptools.package-data]
 "ripplecut.ui" = ["static/*.html"]
+"ripplecut.config" = ["*.json", "fixtures/*.json", "rcaeval_cases/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

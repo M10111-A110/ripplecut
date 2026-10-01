@@ -33,7 +33,7 @@ from .incident.llm import LLMIncidentParser, LLMUnavailable
 from .incident.parser import OK, ParseResult, RuleBasedParser
 from .incident.schema import StructuredIncident, validate_incident
 from .logs import EventRecorder, get_logger, log_event
-from .model.loader import REPO_ROOT, ModelBundle, load_model
+from .model.loader import REPO_ROOT, ModelBundle, load_model, resolve_config_path
 from .model.schema import ContainmentProblem, State, cost_to_json
 from .solvers.builtin import build_default_registry
 from .solvers.fault_injection import FAULT_MODES, RESILIENCE_LABEL, FaultInjectingSolver
@@ -42,7 +42,7 @@ from .solvers.policy import SolverPolicy, load_policy
 from .solvers.registry import SolverRegistry
 from .validation.validator import SafetyValidator
 
-DEFAULT_SCENARIOS_PATH = REPO_ROOT / "config" / "scenarios.json"
+DEFAULT_SCENARIOS_PATH = resolve_config_path("scenarios.json")
 CONTROLLED_LABEL = "Controlled RippleCut Scenario"
 APPROVAL_PENDING = "PENDING_HUMAN_APPROVAL"
 VOLATILE_KEYS = frozenset({"run_id", "runtime_seconds", "guard_runtime_seconds", "events", "timing", "created_at",

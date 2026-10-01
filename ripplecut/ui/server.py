@@ -29,8 +29,9 @@ MAX_RUNS = 200
 
 
 class DemoState:
-    def __init__(self, app: RippleCutApp) -> None:
+    def __init__(self, app: RippleCutApp, allow_fault_injection: bool = True) -> None:
         self.app = app
+        self.allow_fault_injection = allow_fault_injection
         self.runs: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         self.lock = threading.Lock()
 
@@ -57,6 +58,8 @@ def handle_api(state: DemoState, method: str, path: str, body: Dict[str, Any]) -
     if method == "POST" and path == "/api/run":
         fault = None
         if body.get("fault"):
+            if not state.allow_fault_injection:
+                raise RippleCutError("fault injection is disabled in this environment", ErrorCode.CONFIG_ERROR)
             f = body["fault"]
             if not isinstance(f, dict):
                 raise RippleCutError("'fault' must be an object", ErrorCode.CONFIG_ERROR)
@@ -84,6 +87,13 @@ def handle_api(state: DemoState, method: str, path: str, body: Dict[str, Any]) -
                   "note": "Simulated approval for the demo. RippleCut executed nothing; applying the plan to a real "
                           "system is a separate, human-operated step outside this MVP."}
         report["approval"] = {**report.get("approval", {}), **record}
+        try:
+            audit_dir = Path("audit")
+            audit_dir.mkdir(parents=True, exist_ok=True)
+            with (audit_dir / "approvals.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+        except Exception:
+            pass
         return record
     raise RippleCutError(f"no route {method} {path}", ErrorCode.CONFIG_ERROR, {"http_status": 404})
 
@@ -91,6 +101,7 @@ def handle_api(state: DemoState, method: str, path: str, body: Dict[str, Any]) -
 def make_handler(state: DemoState):
     class Handler(BaseHTTPRequestHandler):
         server_version = "RippleCutDemo/1.0"
+        timeout = 10.0
 
         def log_message(self, fmt: str, *args: Any) -> None:  # quiet default access log
             pass
@@ -100,6 +111,9 @@ def make_handler(state: DemoState):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:8765")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
             self.end_headers()
             self.wfile.write(payload)
 
@@ -113,7 +127,15 @@ def make_handler(state: DemoState):
                 return
             body: Dict[str, Any] = {}
             if method == "POST":
-                length = int(self.headers.get("Content-Length") or 0)
+                raw_len = (self.headers.get("Content-Length") or "").strip()
+                try:
+                    length = int(raw_len) if raw_len else 0
+                except ValueError:
+                    self._json(400, {"code": "CONFIG_ERROR", "message": "invalid Content-Length"})
+                    return
+                if length < 0:
+                    self._json(400, {"code": "CONFIG_ERROR", "message": "negative Content-Length"})
+                    return
                 if length > MAX_BODY:
                     self._json(413, {"code": "CONFIG_ERROR", "message": "request body too large"})
                     return
@@ -136,6 +158,13 @@ def make_handler(state: DemoState):
 
         def do_POST(self) -> None:  # noqa: N802
             self._dispatch("POST")
+
+        def do_OPTIONS(self) -> None:  # noqa: N802
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:8765")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
 
     return Handler
 

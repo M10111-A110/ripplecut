@@ -188,7 +188,8 @@ def write_markdown(data: Dict[str, Any], path: Path) -> None:
              f"{' (non-equivalent: ' + str(s['non_equivalent']) + ')' if s['non_equivalent'] else ''}; "
              f"validator rejections of solver output: {s['validator_rejections']}; total benchmark time "
              f"{s['benchmark_seconds']} s.\n")
-    L.append("## 1. Canonical Online Boutique scenarios (m = 8, 2^m = 256)\n")
+    m_actions = data["scenarios"][0]["m"] if data["scenarios"] else 7
+    L.append(f"## 1. Canonical Online Boutique scenarios (m = {m_actions}, 2^m = {2 ** m_actions})\n")
     L.append("| scenario | objective (K,N,R) | plan | Exhaustive ms | B&B ms | B&B nodes | bound sims | pruning | "
              "DFS nodes | validation ms | equivalent |")
     L.append("|---|---|---|---|---|---|---|---|---|---|---|")

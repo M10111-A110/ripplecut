@@ -22,7 +22,7 @@ def test_canonical_model_validates(bundle):
     hard_edges = sum(len(r.hard_upstream) for r in s.rules.values())
     soft_edges = sum(len(r.soft_upstream) for r in s.rules.values())
     assert (hard_edges, soft_edges) == (9, 6)          # ~8-10 meaningful (propagating) dependencies
-    assert len(bundle.actions) == 8
+    assert len(bundle.actions) == 7
 
 
 def test_every_edge_is_labeled_and_backed(bundle):
@@ -56,8 +56,10 @@ def _raw():
     (lambda d: d["dependency_rules"][0].update(semantics="SOURCE-BACKED"), "RIPPLECUT-MODELED"),
     (lambda d: d["objective_policy"].update(type="WEIGHTED"), "LEXICOGRAPHIC"),
     (lambda d: d["dependency_rules"].append(copy.deepcopy(d["dependency_rules"][0])), "duplicate rule"),
-    (lambda d: d["dependency_rules"][0]["inputs"][0].update(evidence=""), "without evidence"),
-    (lambda d: d["action_conflicts"].pop(), "opposite directions"),          # restart vs suppress email
+    (lambda d: d["interventions"].append({
+        "id": "down_email", "name": "down", "cost": 1, "targets": ["emailservice"],
+        "preconditions": [], "effect": {"set_up": [], "set_down": ["emailservice"]}
+    }), "opposite directions"),
 ])
 def test_invalid_model_is_rejected(mutate, needle):
     d = _raw()

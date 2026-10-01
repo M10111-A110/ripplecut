@@ -50,6 +50,52 @@ STATUS_PHRASES: Tuple[Tuple[Tuple[str, ...], str], ...] = tuple(sorted([
 
 NEGATIONS = frozenset({"not", "no", "never", "without", "longer"})
 
+PAST_TEMPORAL_PHRASES: Tuple[Tuple[str, ...], ...] = tuple(sorted([
+    tuple(p.split()) for p in [
+        "five minutes ago", "10 minutes ago", "15 minutes ago", "earlier today", "earlier", "previously",
+        "yesterday", "in the past", "last night", "last hour", "was down earlier", "failed earlier",
+        "was down", "was failing", "was degraded", "was slow", "was broken", "was offline",
+        "was unreachable", "had failed", "had crashed", "used to be", "prior"
+    ]
+], key=lambda item: -len(item)))
+
+RECOVERY_PHRASES: Tuple[Tuple[str, ...], ...] = tuple(sorted([
+    tuple(p.split()) for p in [
+        "healthy now", "is healthy now", "up now", "is up now", "recovered", "back up", "is back up",
+        "fixed now", "is fixed now", "resolved now", "is resolved now", "fine now", "is fine now",
+        "operational now", "is operational now", "working now", "is working now", "normal now",
+        "is normal now", "all good now", "restored", "is restored", "it is recovered", "recovered now"
+    ]
+], key=lambda item: -len(item)))
+
+UNCERTAINTY_PHRASES: Tuple[Tuple[str, ...], ...] = tuple(sorted([
+    tuple(p.split()) for p in [
+        "might be", "could be", "possibly", "maybe", "suspected", "suspecting",
+        "potential", "potentially", "unconfirmed", "seems to be", "appears to be",
+        "perhaps", "might have", "not sure if", "uncertain"
+    ]
+], key=lambda item: -len(item)))
+
+RETRACTION_PHRASES: Tuple[Tuple[str, ...], ...] = tuple(sorted([
+    tuple(p.split()) for p in [
+        "just kidding it is up", "just kidding it's up", "just kidding", "never mind",
+        "nevermind", "ignore that", "scratch that", "false alarm", "disregard", "cancel that"
+    ]
+], key=lambda item: -len(item)))
+
+HYPOTHETICAL_PHRASES: Tuple[Tuple[str, ...], ...] = tuple(sorted([
+    tuple(p.split()) for p in [
+        "what if", "suppose", "assuming", "hypothetically", "imagine", "what happens if", "in case of"
+    ]
+], key=lambda item: -len(item)))
+
+MAINTENANCE_PHRASES: Tuple[Tuple[str, ...], ...] = tuple(sorted([
+    tuple(p.split()) for p in [
+        "scheduled maintenance", "planned maintenance", "maintenance window", "under maintenance",
+        "routine maintenance", "scheduled downtime", "planned downtime"
+    ]
+], key=lambda item: -len(item)))
+
 # Components that do not exist in the Online-Boutique model; naming one makes the
 # incident unrepresentable (PDF §1.2: generic example components are not OB services).
 UNMODELED_TERMS: Tuple[Tuple[str, ...], ...] = tuple(tuple(t.split()) for t in [
@@ -61,6 +107,21 @@ _TOKEN = re.compile(r"[a-z0-9]+(?:[-_][a-z0-9]+)*")
 _SERVICE_LIKE = re.compile(r"^[a-z][a-z0-9-]*service$")
 
 
+def _match_phrase_tuples(toks: Sequence[str], phrases: Sequence[Tuple[str, ...]]) -> List[Tuple[int, int, str]]:
+    """Find non-overlapping matches of multi-word phrase tuples in tokens, longest first.
+    Returns sorted list of (start_idx, end_idx, matched_phrase_str)."""
+    matches = []
+    used = [False] * len(toks)
+    for phrase in phrases:
+        n = len(phrase)
+        for i in range(len(toks) - n + 1):
+            if not any(used[i:i + n]) and tuple(toks[i:i + n]) == phrase:
+                for j in range(i, i + n):
+                    used[j] = True
+                matches.append((i, i + n, " ".join(phrase)))
+    return sorted(matches)
+
+
 @dataclass
 class Mention:
     service: str
@@ -69,11 +130,15 @@ class Mention:
     position: int
     state: Optional[str] = None
     state_phrase: Optional[str] = None
+    temporal: str = "current"        # current | historical | recovery | uncertain | hypothetical | maintenance
+    confidence: str = "HIGH"         # HIGH | UNCERTAIN | AMBIGUOUS
+    source_text: str = ""
     issue: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {"service": self.service, "matched_text": self.alias, "clause": self.clause,
-                "state": self.state, "state_phrase": self.state_phrase, "issue": self.issue}
+                "state": self.state, "state_phrase": self.state_phrase, "temporal": self.temporal,
+                "confidence": self.confidence, "source_text": self.source_text, "issue": self.issue}
 
 
 @dataclass
@@ -144,7 +209,15 @@ class RuleBasedParser:
             return ParseResult(NO_SERVICE_FOUND, self.name, str(text), message="empty incident text")
         mentions: List[Mention] = []
         unknown: List[str] = []
-        for ci, clause in enumerate(split_clauses(text)):
+        clauses = split_clauses(text)
+        prev_clause_mentions: List[Mention] = []
+
+        # Text-level global checks
+        text_toks = tokenize(text)
+        global_hypotheticals = _match_phrase_tuples(text_toks, HYPOTHETICAL_PHRASES)
+        global_retractions = _match_phrase_tuples(text_toks, RETRACTION_PHRASES)
+
+        for ci, clause in enumerate(clauses):
             toks = tokenize(clause)
             used = [False] * len(toks)
             clause_mentions: List[Mention] = []
@@ -155,7 +228,7 @@ class RuleBasedParser:
                     if not any(used[i:i + n]) and tuple(toks[i:i + n]) == alias:
                         for j in range(i, i + n):
                             used[j] = True
-                        m = Mention(sid, " ".join(alias), ci, i)
+                        m = Mention(sid, " ".join(alias), ci, i, source_text=clause)
                         if alias in self.collisions:
                             m.issue = f"'{' '.join(alias)}' matches several services {self.collisions[alias]}"
                         clause_mentions.append(m)
@@ -171,11 +244,52 @@ class RuleBasedParser:
                 if not used[i] and _SERVICE_LIKE.match(t):
                     used[i] = True
                     unknown.append(t)
-            # 3) status phrases and their assignment to mentions
+
+            # 3) qualifiers in clause
+            hypotheticals = _match_phrase_tuples(toks, HYPOTHETICAL_PHRASES) or (global_hypotheticals if ci == 0 else [])
+            maintenances = _match_phrase_tuples(toks, MAINTENANCE_PHRASES)
+            retractions = _match_phrase_tuples(toks, RETRACTION_PHRASES) or global_retractions
+            uncertainties = _match_phrase_tuples(toks, UNCERTAINTY_PHRASES)
+            pasts = _match_phrase_tuples(toks, PAST_TEMPORAL_PHRASES)
+            recoveries = _match_phrase_tuples(toks, RECOVERY_PHRASES)
             statuses = self._statuses(toks, used)
+
+            # If this clause has no service mentions but has recovery/retraction/status,
+            # and previous clause had mentions, apply clause info to previous mentions
+            if not clause_mentions and prev_clause_mentions:
+                if retractions:
+                    for pm in prev_clause_mentions:
+                        pm.confidence = "AMBIGUOUS"
+                        pm.issue = pm.issue or f"retracted statement ('{retractions[0][2]}') - state is ambiguous"
+                elif recoveries:
+                    for pm in prev_clause_mentions:
+                        pm.state = UP_WORD
+                        pm.state_phrase = recoveries[0][2]
+                        pm.temporal = "recovery"
+                        pm.confidence = "HIGH"
+                        pm.issue = None
+                elif statuses:
+                    for pm in prev_clause_mentions:
+                        self._assign(pm, statuses, uncertainties, pasts, recoveries, hypotheticals, maintenances, retractions)
+
+            # 4) status phrases and their assignment to mentions
             for m in sorted(clause_mentions, key=lambda m: m.position):
-                self._assign(m, statuses)
-            mentions.extend(sorted(clause_mentions, key=lambda m: m.position))
+                self._assign(m, statuses, uncertainties, pasts, recoveries, hypotheticals, maintenances, retractions,
+                             all_clause_mentions=clause_mentions)
+
+            if clause_mentions:
+                prev_clause_mentions = clause_mentions
+                mentions.extend(sorted(clause_mentions, key=lambda m: m.position))
+
+        if global_hypotheticals:
+            for m in mentions:
+                m.temporal = "hypothetical"
+                m.issue = m.issue or f"hypothetical scenario ('{global_hypotheticals[0][2]}') - not an active incident"
+
+        if global_retractions:
+            for m in mentions:
+                m.confidence = "AMBIGUOUS"
+                m.issue = m.issue or f"retracted statement ('{global_retractions[0][2]}') - state is ambiguous"
 
         result = ParseResult(OK, self.name, text, mentions=mentions)
         if unknown:
@@ -207,19 +321,70 @@ class RuleBasedParser:
                     out.append((i, state, " ".join(phrase), negated))
         return sorted(out)
 
-    @staticmethod
-    def _assign(m: Mention, statuses: List[Tuple[int, str, str, bool]]) -> None:
+    @classmethod
+    def _assign(cls, m: Mention, statuses: List[Tuple[int, str, str, bool]],
+                uncertainties: List[Tuple[int, int, str]],
+                pasts: List[Tuple[int, int, str]],
+                recoveries: List[Tuple[int, int, str]],
+                hypotheticals: List[Tuple[int, int, str]],
+                maintenances: List[Tuple[int, int, str]],
+                retractions: List[Tuple[int, int, str]],
+                all_clause_mentions: Optional[List[Mention]] = None) -> None:
+        if hypotheticals:
+            m.temporal = "hypothetical"
+            m.issue = m.issue or f"hypothetical scenario ('{hypotheticals[0][2]}') - not an active incident"
+            return
+
+        if maintenances:
+            m.temporal = "maintenance"
+            m.issue = m.issue or f"maintenance window ('{maintenances[0][2]}') - not an unexpected outage"
+            return
+
+        if retractions:
+            m.confidence = "AMBIGUOUS"
+            m.issue = m.issue or f"retracted statement ('{retractions[0][2]}') - state is ambiguous"
+            return
+
         after = [s for s in statuses if s[0] > m.position]
         before = [s for s in statuses if s[0] < m.position]
         chosen = after[0] if after else (before[-1] if before else None)
+
         if chosen is None:
             m.issue = m.issue or "no state is stated for this service"
             return
+
         _, state, phrase, negated = chosen
         if negated:
             m.issue = m.issue or f"negated state phrase '{phrase}' - state is not stated positively"
             m.state_phrase = phrase
             return
+
+        # Check if an uncertainty phrase qualifies this status
+        m_uncert = [u for u in uncertainties if abs(u[0] - m.position) <= 5 or (min(m.position, chosen[0]) - 3 <= u[0] <= max(m.position, chosen[0]) + 2)]
+        if m_uncert:
+            m.confidence = "UNCERTAIN"
+            m.issue = m.issue or f"uncertain state ('{m_uncert[0][2]}') - RippleCut requires confirmed state"
+            m.state_phrase = phrase
+            return
+
+        # Check if a recovery phrase qualifies this mention
+        m_rec = [r for r in recoveries if abs(r[0] - m.position) <= 6 or abs(r[0] - chosen[0]) <= 5]
+        if m_rec:
+            m.temporal = "recovery"
+            m.state = UP_WORD
+            m.state_phrase = m_rec[0][2]
+            m.confidence = "HIGH"
+            m.issue = None
+            return
+
+        # Check if a past temporal phrase qualifies this status
+        m_past = [p for p in pasts if (min(m.position, chosen[0]) - 1 <= p[0] <= max(m.position, chosen[0]) + 4)]
+        if m_past:
+            m.temporal = "historical"
+            m.issue = m.issue or f"historical report without current confirmation ('{m_past[0][2]}') - state is ambiguous"
+            m.state_phrase = phrase
+            return
+
         m.state, m.state_phrase = state, phrase
 
     def _finish(self, result: ParseResult) -> ParseResult:

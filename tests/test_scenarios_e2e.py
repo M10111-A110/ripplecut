@@ -133,3 +133,24 @@ def test_all_critical_services_already_down(app):
     r = app.run_incident({"failed_services": crit})
     assert r["status"] == "NO_FEASIBLE_PLAN" and r["result"]["infeasibility_certified"] is True
     assert r["uncontrolled_cascade"]["state_changing_rounds"] >= 0
+
+
+def test_ui_audit_logging_and_fault_guard(app, tmp_path, monkeypatch):
+    """Verify persistent audit logging on /api/approve and fault injection toggle."""
+    monkeypatch.chdir(tmp_path)
+    state = DemoState(app, allow_fault_injection=False)
+    with pytest.raises(RippleCutError, match="fault injection is disabled"):
+        handle_api(state, "POST", "/api/run", {"scenario_id": "payment_failure", "fault": {"mode": "crash"}})
+
+    state.allow_fault_injection = True
+    r = handle_api(state, "POST", "/api/run", {"scenario_id": "payment_failure"})
+    rec = handle_api(state, "POST", "/api/approve", {"run_id": r["run_id"]})
+    assert rec["status"] == "APPROVED_SIMULATED"
+    audit_file = tmp_path / "audit" / "approvals.jsonl"
+    assert audit_file.exists()
+    lines = audit_file.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1
+    logged = json.loads(lines[0])
+    assert logged["run_id"] == r["run_id"]
+    assert logged["plan"] == ["payment_fallback"]
+

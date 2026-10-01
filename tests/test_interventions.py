@@ -52,12 +52,25 @@ def test_precondition_evaluated_on_pre_intervention_state(bundle):
     assert not r.legal     # checkout is UP in x(0): it only fails later in the cascade
 
 
-def test_defined_joint_effect(bundle):
-    x0 = _x0(bundle, "emailservice")
-    r = check_plan(bundle.system, bundle.actions, ["restart_emailservice", "suppress_emailservice"], x0)
-    assert r.legal and r.up == frozenset() and r.down == {"emailservice"}   # explicit policy: suppression wins
-    x = apply_plan(bundle.system, bundle.actions, ["restart_emailservice", "suppress_emailservice"], x0)
-    assert bundle.system.state_to_mapping(x)["emailservice"] == 0
+def test_defined_joint_effect():
+    b = build(
+        services=["a", "b"],
+        actions=[
+            action("restart_a", 1, up=["a"], pre=[("a", "DOWN")]),
+            action("suppress_a", 0, down=["a"]),
+        ],
+        conflicts=[{
+            "actions": ["restart_a", "suppress_a"],
+            "resolution": "DEFINED_JOINT_EFFECT",
+            "joint_effect": {"set_up": [], "set_down": ["a"]},
+            "rationale": "explicit policy: suppression wins",
+        }],
+    )
+    x0 = b.system.state_with_failures(["a"])
+    r = check_plan(b.system, b.actions, ["restart_a", "suppress_a"], x0)
+    assert r.legal and r.up == frozenset() and r.down == {"a"}   # explicit policy: suppression wins
+    x = apply_plan(b.system, b.actions, ["restart_a", "suppress_a"], x0)
+    assert b.system.state_to_mapping(x)["a"] == 0
 
 
 def test_action_in_two_joint_pairs_is_illegal():

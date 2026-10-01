@@ -163,3 +163,41 @@ def test_llm_explanation_guard_rejects_inventions(bundle, text, needle):
 def test_llm_explanation_falls_back_on_error(bundle):
     out = llm_explanation(StubLLM(RuntimeError("down")), FACTS, bundle.system, bundle.actions)
     assert not out["accepted"] and out["text"] is None
+
+
+# ---- temporal qualifiers, uncertainty, recovery, and retraction (§104-§105) --------------------------------------
+def test_past_failure_with_recovery_resolves_healthy(parser):
+    r = parser.parse("payment failed five minutes ago but is healthy now")
+    assert r.status == OK
+    assert r.incident is not None
+    assert r.incident.failed_services == ()
+    assert r.incident.degraded_services == ()
+    assert any("paymentservice" in n for n in r.notes)
+
+
+def test_past_failure_with_recovery_and_active_failure(parser):
+    r = parser.parse("payment failed five minutes ago but is healthy now; cartservice is down")
+    assert r.status == OK
+    assert r.incident is not None
+    assert r.incident.failed_services == ("cartservice",)
+    assert any("paymentservice" in n for n in r.notes)
+
+
+@pytest.mark.parametrize("text,expected_phrase", [
+    ("payment was down earlier", "historical report without current confirmation"),
+    ("payment had failed 10 minutes ago", "historical report without current confirmation"),
+    ("payment might be down", "uncertain state"),
+    ("could be that paymentservice is degraded", "uncertain state"),
+    ("payment is down. just kidding, it's up", "retracted statement"),
+    ("payment is failing - never mind, false alarm", "retracted statement"),
+    ("what if payment fails", "hypothetical scenario"),
+    ("suppose paymentservice is down", "hypothetical scenario"),
+    ("scheduled maintenance on payment", "maintenance window"),
+    ("payment is under maintenance", "maintenance window"),
+])
+def test_parser_temporal_uncertainty_and_retraction_rejections(parser, text, expected_phrase):
+    r = parser.parse(text)
+    assert r.status == AMBIGUOUS
+    assert r.incident is None
+    assert expected_phrase in r.message
+
