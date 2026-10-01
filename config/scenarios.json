@@ -1,0 +1,106 @@
+{
+  "scenario_set": {
+    "id": "online_boutique_canonical_scenarios_v1",
+    "model": "config/online_boutique_canonical.json",
+    "label": "Controlled RippleCut Scenario",
+    "note": "ONE topology, ONE rule set, ONE action space; only the incident configuration changes (master spec §47-§48). No scenario is attributed to RCAEval: no RCAEval case was inspected in this build. Expected values were derived by hand from the model before running and are asserted by tests/test_scenarios.py."
+  },
+  "scenarios": [
+    {
+      "id": "payment_failure",
+      "title": "paymentservice DOWN",
+      "label": "Controlled RippleCut Scenario",
+      "incident": {"failed_services": ["paymentservice"], "scenario_id": "payment_failure"},
+      "example_text": "paymentservice is down",
+      "expected": {
+        "uncontrolled_down": ["checkoutservice", "paymentservice"],
+        "status": "SUCCESS", "plan": ["payment_fallback"], "K": 3, "N": 1, "R": 0, "C": 7,
+        "derivation": "checkout = cart AND catalog AND currency AND shipping AND payment, so checkout fails in round 1. Only payment_fallback (3) and checkout_backend_standby (5) can set payment UP (all other actions' preconditions fail). Minimum K = 3; runner-up {payment_fallback, suppress_emailservice} = (3, 2, 1)."
+      }
+    },
+    {
+      "id": "shipping_failure",
+      "title": "shippingservice DOWN",
+      "label": "Controlled RippleCut Scenario",
+      "incident": {"failed_services": ["shippingservice"], "scenario_id": "shipping_failure"},
+      "example_text": "Shipping service is unavailable",
+      "expected": {
+        "uncontrolled_down": ["checkoutservice", "shippingservice"],
+        "status": "SUCCESS", "plan": ["shipping_fallback"], "K": 2, "N": 1, "R": 0, "C": 7,
+        "derivation": "shipping is a hard input of checkout (frontend only uses it on the cart page: soft). shipping_fallback (2) beats checkout_backend_standby (5) on cost."
+      }
+    },
+    {
+      "id": "payment_and_shipping_failure",
+      "title": "paymentservice + shippingservice DOWN (multiple simultaneous failures)",
+      "label": "Controlled RippleCut Scenario",
+      "incident": {"failed_services": ["paymentservice", "shippingservice"], "scenario_id": "payment_and_shipping_failure"},
+      "example_text": "payment and shipping are both down",
+      "expected": {
+        "uncontrolled_down": ["checkoutservice", "paymentservice", "shippingservice"],
+        "status": "SUCCESS", "plan": ["checkout_backend_standby"], "K": 5, "N": 1, "R": 0, "C": 7,
+        "derivation": "{payment_fallback, shipping_fallback} = (5, 2, 0) and {checkout_backend_standby} = (5, 1, 0) tie on cost; the intervention-count criterion selects the standby. Standby combined with either fallback is an INVALID_COMBINATION."
+      }
+    },
+    {
+      "id": "email_failure",
+      "title": "emailservice DOWN (non-critical, soft dependency)",
+      "label": "Controlled RippleCut Scenario",
+      "incident": {"failed_services": ["emailservice"], "scenario_id": "email_failure"},
+      "example_text": "The email service crashed",
+      "expected": {
+        "uncontrolled_down": ["emailservice"],
+        "status": "SUCCESS", "plan": [], "K": 0, "N": 0, "R": 1, "C": 7,
+        "derivation": "email is a SOFT input of checkout (failure only logged), so nothing propagates and every critical service stays UP. The empty plan (0, 0, 1) beats restart_emailservice (1, 1, 0) because cost is minimised before residual failures (PDF §8.3)."
+      }
+    },
+    {
+      "id": "productcatalog_failure",
+      "title": "productcatalogservice DOWN (fan-out cascade)",
+      "label": "Controlled RippleCut Scenario",
+      "incident": {"failed_services": ["productcatalogservice"], "scenario_id": "productcatalog_failure"},
+      "example_text": "product catalog outage",
+      "expected": {
+        "uncontrolled_down": ["checkoutservice", "frontend", "productcatalogservice", "recommendationservice"],
+        "status": "SUCCESS", "plan": ["restore_productcatalog_replica"], "K": 4, "N": 1, "R": 0, "C": 7,
+        "derivation": "catalog is a hard input of checkout, frontend and recommendation, so three services fail in round 1. restore_productcatalog_replica (4) is the only action that sets catalog UP."
+      }
+    },
+    {
+      "id": "currency_failure",
+      "title": "currencyservice DOWN",
+      "label": "Controlled RippleCut Scenario",
+      "incident": {"failed_services": ["currencyservice"], "scenario_id": "currency_failure"},
+      "example_text": "currency conversion service is failing",
+      "expected": {
+        "uncontrolled_down": ["checkoutservice", "currencyservice", "frontend"],
+        "status": "SUCCESS", "plan": ["restore_currency_replica"], "K": 2, "N": 1, "R": 0, "C": 7,
+        "derivation": "currency is a hard input of checkout and frontend. restore_currency_replica (2) is the only action that sets it UP."
+      }
+    },
+    {
+      "id": "cart_failure",
+      "title": "cartservice DOWN (no feasible plan in the modeled action set)",
+      "label": "Controlled RippleCut Scenario",
+      "incident": {"failed_services": ["cartservice"], "scenario_id": "cart_failure"},
+      "example_text": "cartservice is down",
+      "expected": {
+        "uncontrolled_down": ["cartservice", "checkoutservice", "frontend"],
+        "status": "NO_FEASIBLE_PLAN", "plan": null, "infeasibility_certified": true,
+        "derivation": "No configured action sets cartservice UP, and cartservice is itself critical. The validator's monotone certificate (apply every possible UP effect, cascade) still leaves cartservice DOWN, so infeasibility is proven independently of any solver. The critical-service constraint is never relaxed."
+      }
+    },
+    {
+      "id": "observed_state_replay",
+      "title": "Observed-state replay: payment + checkout DOWN, recommendation DEGRADED",
+      "label": "Controlled RippleCut Scenario — SYNTHETIC telemetry replay fixture (NOT RCAEval)",
+      "fixture": "config/fixtures/synthetic_observed_checkout_down.json",
+      "expected": {
+        "estimated": {"paymentservice": "DOWN", "checkoutservice": "DOWN", "recommendationservice": "DEGRADED"},
+        "uncontrolled_down": ["checkoutservice", "paymentservice", "recommendationservice"],
+        "status": "SUCCESS", "plan": ["payment_fallback", "restart_checkoutservice"], "K": 4, "N": 2, "R": 1, "C": 7,
+        "derivation": "Observed DOWN services are initial failures and stay DOWN unless an action sets them UP (no-recovery assumption). checkout needs restart_checkoutservice (1) AND payment UP (payment_fallback 3; standby 5). recommendation is DEGRADED, which the formal model maps to 0 (x=1 iff UP); no action restores it, so R = 1."
+      }
+    }
+  ]
+}

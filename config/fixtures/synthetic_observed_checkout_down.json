@@ -1,0 +1,22 @@
+{
+  "fixture_id": "synthetic_observed_checkout_down_v1",
+  "provenance": {
+    "kind": "SYNTHETIC",
+    "label": "SYNTHETIC REPLAY FIXTURE — hand-written for the offline demo",
+    "statement": "These numbers were written by hand to exercise the state estimator. They are NOT taken from RCAEval, from Online Boutique, or from any real telemetry. No RCAEval case was inspected in this build."
+  },
+  "observation_schema": "z_v = [latency_p95_ms, error_rate, request_rate, cpu_utilization] (PDF §3.2: latency, errorRate, requestRate, resourceSignals)",
+  "observations": {
+    "frontend":              {"latency_p95_ms": 310,   "error_rate": 0.02, "request_rate": 120.0, "cpu_utilization": 0.41},
+    "cartservice":           {"latency_p95_ms": 18,    "error_rate": 0.0,  "request_rate": 95.0,  "cpu_utilization": 0.22},
+    "productcatalogservice": {"latency_p95_ms": 25,    "error_rate": 0.0,  "request_rate": 210.0, "cpu_utilization": 0.35},
+    "currencyservice":       {"latency_p95_ms": 22,    "error_rate": 0.0,  "request_rate": 260.0, "cpu_utilization": 0.30},
+    "paymentservice":        {"latency_p95_ms": 30000, "error_rate": 0.93, "request_rate": 11.0,  "cpu_utilization": 0.05},
+    "shippingservice":       {"latency_p95_ms": 40,    "error_rate": 0.0,  "request_rate": 30.0,  "cpu_utilization": 0.18},
+    "emailservice":          {"latency_p95_ms": 60,    "error_rate": 0.01, "request_rate": 9.0,   "cpu_utilization": 0.12},
+    "checkoutservice":       {"latency_p95_ms": 29000, "error_rate": 0.88, "request_rate": 11.0,  "cpu_utilization": 0.33},
+    "recommendationservice": {"latency_p95_ms": 2400,  "error_rate": 0.01, "request_rate": 80.0,  "cpu_utilization": 0.64},
+    "adservice":             {"latency_p95_ms": 55,    "error_rate": 0.0,  "request_rate": 70.0,  "cpu_utilization": 0.27},
+    "loadgenerator":         {"latency_p95_ms": 0,     "error_rate": 0.0,  "request_rate": 10.0,  "cpu_utilization": 0.15}
+  }
+}

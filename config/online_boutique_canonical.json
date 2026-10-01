@@ -1,0 +1,625 @@
+{
+  "model": {
+    "id": "online_boutique_canonical_v1",
+    "name": "Online Boutique — Canonical Purchase-Path Scenario",
+    "reference_system": "Google Online Boutique (GoogleCloudPlatform/microservices-demo)",
+    "source_repository": "https://github.com/GoogleCloudPlatform/microservices-demo",
+    "source_commit_inspected": "38e7348eb289eb5b87c0c6e8cb19ced0449dc389",
+    "state_meaning": {
+      "frontend": "x=1 iff the storefront browse path (home page: currencies, product list, cart) can render. RIPPLECUT-MODELED definition.",
+      "checkoutservice": "x=1 iff PlaceOrder can complete. RIPPLECUT-MODELED definition.",
+      "other services": "x=1 iff the service is UP (available)."
+    },
+    "excluded_from_model": [
+      "redis-cart: backing store of cartservice (kubernetes-manifests/cartservice.yaml); not one of the 11 frozen services.",
+      "shoppingassistantservice: optional component (kustomize/components/shopping-assistant); not one of the 11 frozen services."
+    ],
+    "labeling": "Every call edge is labeled SOURCE-BACKED with a file/line reference at the inspected commit. Every Boolean rule is RIPPLECUT-MODELED: it is informed by the source's error handling but is NOT claimed to be Online Boutique production semantics."
+  },
+  "services": [
+    {
+      "id": "frontend",
+      "name": "frontend",
+      "role": "business",
+      "aliases": [
+        "frontend",
+        "front end",
+        "front-end",
+        "storefront",
+        "web frontend",
+        "website"
+      ],
+      "description": "HTTP storefront (Go).",
+      "source": "SOURCE-BACKED: src/frontend"
+    },
+    {
+      "id": "cartservice",
+      "name": "cartservice",
+      "role": "business",
+      "aliases": [
+        "cartservice",
+        "cart service",
+        "cart"
+      ],
+      "description": "Shopping cart (C#), backed by redis-cart (excluded).",
+      "source": "SOURCE-BACKED: src/cartservice"
+    },
+    {
+      "id": "productcatalogservice",
+      "name": "productcatalogservice",
+      "role": "business",
+      "aliases": [
+        "productcatalogservice",
+        "product catalog service",
+        "product catalog",
+        "catalog service",
+        "catalog",
+        "product service"
+      ],
+      "description": "Product list and lookup (Go).",
+      "source": "SOURCE-BACKED: src/productcatalogservice"
+    },
+    {
+      "id": "currencyservice",
+      "name": "currencyservice",
+      "role": "business",
+      "aliases": [
+        "currencyservice",
+        "currency service",
+        "currency",
+        "currency conversion"
+      ],
+      "description": "Currency conversion (Node.js).",
+      "source": "SOURCE-BACKED: src/currencyservice"
+    },
+    {
+      "id": "paymentservice",
+      "name": "paymentservice",
+      "role": "business",
+      "aliases": [
+        "paymentservice",
+        "payment service",
+        "payments service",
+        "payment",
+        "payments"
+      ],
+      "description": "Mock card charging (Node.js).",
+      "source": "SOURCE-BACKED: src/paymentservice"
+    },
+    {
+      "id": "shippingservice",
+      "name": "shippingservice",
+      "role": "business",
+      "aliases": [
+        "shippingservice",
+        "shipping service",
+        "shipping"
+      ],
+      "description": "Shipping quotes and mock shipment (Go).",
+      "source": "SOURCE-BACKED: src/shippingservice"
+    },
+    {
+      "id": "emailservice",
+      "name": "emailservice",
+      "role": "business",
+      "aliases": [
+        "emailservice",
+        "email service",
+        "email",
+        "emails",
+        "order confirmation email"
+      ],
+      "description": "Order-confirmation email (Python).",
+      "source": "SOURCE-BACKED: src/emailservice"
+    },
+    {
+      "id": "checkoutservice",
+      "name": "checkoutservice",
+      "role": "business",
+      "aliases": [
+        "checkoutservice",
+        "checkout service",
+        "checkout"
+      ],
+      "description": "Orchestrates PlaceOrder (Go).",
+      "source": "SOURCE-BACKED: src/checkoutservice"
+    },
+    {
+      "id": "recommendationservice",
+      "name": "recommendationservice",
+      "role": "business",
+      "aliases": [
+        "recommendationservice",
+        "recommendation service",
+        "recommendations service",
+        "recommendations",
+        "recommendation"
+      ],
+      "description": "Product recommendations (Python).",
+      "source": "SOURCE-BACKED: src/recommendationservice"
+    },
+    {
+      "id": "adservice",
+      "name": "adservice",
+      "role": "business",
+      "aliases": [
+        "adservice",
+        "ad service",
+        "ads service",
+        "ads",
+        "advertising"
+      ],
+      "description": "Contextual ads (Java).",
+      "source": "SOURCE-BACKED: src/adservice"
+    },
+    {
+      "id": "loadgenerator",
+      "name": "loadgenerator",
+      "role": "infrastructure",
+      "aliases": [
+        "loadgenerator",
+        "load generator",
+        "locust"
+      ],
+      "description": "Locust traffic generator (traffic infrastructure, not a business service).",
+      "source": "SOURCE-BACKED: src/loadgenerator"
+    }
+  ],
+  "excluded_services": [
+    {
+      "id": "redis-cart",
+      "aliases": [
+        "redis-cart",
+        "redis cart",
+        "redis"
+      ],
+      "reason": "Backing store of cartservice (kubernetes-manifests/cartservice.yaml); not one of the 11 frozen services."
+    },
+    {
+      "id": "shoppingassistantservice",
+      "aliases": [
+        "shoppingassistantservice",
+        "shopping assistant service",
+        "shopping assistant"
+      ],
+      "reason": "Optional component (kustomize/components/shopping-assistant); not one of the 11 frozen services."
+    }
+  ],
+  "dependency_rules": [
+    {
+      "downstream": "checkoutservice",
+      "rule_type": "AND",
+      "semantics": "RIPPLECUT-MODELED",
+      "notes": "x_checkout = x_cart AND x_catalog AND x_currency AND x_shipping AND x_payment. emailservice is SOFT because PlaceOrder only logs a warning when the confirmation email fails.",
+      "inputs": [
+        {
+          "service": "cartservice",
+          "strength": "hard",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/checkoutservice/main.go L288-296, L324-326: getUserCart -> CartService.GetCart; error aborts PlaceOrder (L238-241). (EmptyCart result is ignored, L263.)"
+        },
+        {
+          "service": "productcatalogservice",
+          "strength": "hard",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/checkoutservice/main.go L339-347: prepOrderItems -> ProductCatalogService.GetProduct; error aborts PlaceOrder."
+        },
+        {
+          "service": "currencyservice",
+          "strength": "hard",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/checkoutservice/main.go L348-351, L359-363: convertCurrency -> CurrencyService.Convert for item prices and shipping cost; error aborts PlaceOrder."
+        },
+        {
+          "service": "shippingservice",
+          "strength": "hard",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/checkoutservice/main.go L313-318 (GetQuote) and L386-390 (ShipOrder); errors abort PlaceOrder (L258-261)."
+        },
+        {
+          "service": "paymentservice",
+          "strength": "hard",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/checkoutservice/main.go L369-373: chargeCard -> PaymentService.Charge; error aborts PlaceOrder (L252-255)."
+        },
+        {
+          "service": "emailservice",
+          "strength": "soft",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/checkoutservice/main.go L273-274, L379-380: SendOrderConfirmation error is only logged (log.Warnf); the order still succeeds."
+        }
+      ]
+    },
+    {
+      "downstream": "frontend",
+      "rule_type": "AND",
+      "semantics": "RIPPLECUT-MODELED",
+      "notes": "x_frontend models the storefront browse path (home page). Calls whose failure only breaks a specific page (cart view, checkout) or is logged and ignored are SOFT for this definition; the purchase path itself is represented by checkoutservice.",
+      "inputs": [
+        {
+          "service": "productcatalogservice",
+          "strength": "hard",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/frontend/handlers.go L67-70 (homeHandler getProducts -> HTTP 500 on error); src/frontend/rpc.go L45-46."
+        },
+        {
+          "service": "currencyservice",
+          "strength": "hard",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/frontend/handlers.go L62-65 and L84-87 (getCurrencies / convertCurrency -> HTTP 500 on error); src/frontend/rpc.go L30-31, L77-81."
+        },
+        {
+          "service": "cartservice",
+          "strength": "hard",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/frontend/handlers.go L72-75 (homeHandler getCart -> HTTP 500 on error); src/frontend/rpc.go L57-58."
+        },
+        {
+          "service": "adservice",
+          "strength": "soft",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/frontend/handlers.go L527-530: chooseAd logs a warning and returns nil on error."
+        },
+        {
+          "service": "recommendationservice",
+          "strength": "soft",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/frontend/handlers.go L178-180, L266-268 (warning only) and L378 (error ignored)."
+        },
+        {
+          "service": "shippingservice",
+          "strength": "soft",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/frontend/handlers.go L271-273: GetQuote failure breaks only the cart page (HTTP 500), not the browse path."
+        },
+        {
+          "service": "checkoutservice",
+          "strength": "soft",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/frontend/handlers.go L355-372: PlaceOrder failure breaks only the checkout request; the purchase path is modeled by checkoutservice itself."
+        }
+      ]
+    },
+    {
+      "downstream": "recommendationservice",
+      "rule_type": "AND",
+      "semantics": "RIPPLECUT-MODELED",
+      "notes": "ListRecommendations calls ListProducts without exception handling.",
+      "inputs": [
+        {
+          "service": "productcatalogservice",
+          "strength": "hard",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/recommendationservice/recommendation_server.py L70-73: ListProducts called with no exception handling; a gRPC error propagates to the caller."
+        }
+      ]
+    },
+    {
+      "downstream": "loadgenerator",
+      "rule_type": "AND",
+      "semantics": "RIPPLECUT-MODELED",
+      "notes": "Traffic source only; its availability is not modeled as depending on frontend.",
+      "inputs": [
+        {
+          "service": "frontend",
+          "strength": "soft",
+          "topology": "SOURCE-BACKED",
+          "evidence": "src/loadgenerator/locustfile.py L34-75 (HTTP tasks); src/loadgenerator/Dockerfile L52: locust --host=http://${FRONTEND_ADDR}."
+        }
+      ]
+    }
+  ],
+  "criticality": {
+    "note": "RippleCut policy choice for the purchase-flow demo, not a claim by Google about business importance (PDF §4.2).",
+    "critical": [
+      "frontend",
+      "checkoutservice",
+      "paymentservice",
+      "cartservice",
+      "productcatalogservice",
+      "currencyservice",
+      "shippingservice"
+    ],
+    "non_critical": [
+      "emailservice",
+      "recommendationservice",
+      "adservice"
+    ],
+    "infrastructure": [
+      "loadgenerator"
+    ]
+  },
+  "objective_policy": {
+    "type": "LEXICOGRAPHIC",
+    "order": [
+      "critical_feasibility",
+      "total_cost",
+      "intervention_count",
+      "residual_failures"
+    ],
+    "final_tie_breaker": "sorted_action_ids"
+  },
+  "interventions": [
+    {
+      "id": "payment_fallback",
+      "name": "Fail over payments to a modeled fallback path",
+      "description": "Route PaymentService.Charge to a hypothetical fallback payment path. Modeled effect: paymentservice becomes UP.",
+      "cost": 3,
+      "targets": [
+        "paymentservice"
+      ],
+      "preconditions": [
+        {
+          "service": "paymentservice",
+          "state": "DOWN"
+        }
+      ],
+      "effect": {
+        "set_up": [
+          "paymentservice"
+        ],
+        "set_down": []
+      },
+      "metadata": {
+        "label": "RIPPLECUT-MODELED HYPOTHETICAL",
+        "exists_in_online_boutique": false
+      }
+    },
+    {
+      "id": "shipping_fallback",
+      "name": "Fail over shipping to a modeled fallback path",
+      "description": "Route shipping quote/ship calls to a hypothetical fallback path. Modeled effect: shippingservice becomes UP.",
+      "cost": 2,
+      "targets": [
+        "shippingservice"
+      ],
+      "preconditions": [
+        {
+          "service": "shippingservice",
+          "state": "DOWN"
+        }
+      ],
+      "effect": {
+        "set_up": [
+          "shippingservice"
+        ],
+        "set_down": []
+      },
+      "metadata": {
+        "label": "RIPPLECUT-MODELED HYPOTHETICAL",
+        "exists_in_online_boutique": false
+      }
+    },
+    {
+      "id": "checkout_backend_standby",
+      "name": "Switch checkout backends to a modeled standby deployment",
+      "description": "Point checkout's payment and shipping calls at a hypothetical standby deployment. Modeled effect: paymentservice and shippingservice become UP.",
+      "cost": 5,
+      "targets": [
+        "paymentservice",
+        "shippingservice"
+      ],
+      "preconditions": [],
+      "effect": {
+        "set_up": [
+          "paymentservice",
+          "shippingservice"
+        ],
+        "set_down": []
+      },
+      "metadata": {
+        "label": "RIPPLECUT-MODELED HYPOTHETICAL",
+        "exists_in_online_boutique": false
+      }
+    },
+    {
+      "id": "restore_productcatalog_replica",
+      "name": "Restore product catalog from a modeled standby replica",
+      "description": "Serve catalog reads from a hypothetical standby replica. Modeled effect: productcatalogservice becomes UP.",
+      "cost": 4,
+      "targets": [
+        "productcatalogservice"
+      ],
+      "preconditions": [
+        {
+          "service": "productcatalogservice",
+          "state": "DOWN"
+        }
+      ],
+      "effect": {
+        "set_up": [
+          "productcatalogservice"
+        ],
+        "set_down": []
+      },
+      "metadata": {
+        "label": "RIPPLECUT-MODELED HYPOTHETICAL",
+        "exists_in_online_boutique": false
+      }
+    },
+    {
+      "id": "restore_currency_replica",
+      "name": "Restore currency conversion from a modeled standby replica",
+      "description": "Serve conversions from a hypothetical standby replica. Modeled effect: currencyservice becomes UP.",
+      "cost": 2,
+      "targets": [
+        "currencyservice"
+      ],
+      "preconditions": [
+        {
+          "service": "currencyservice",
+          "state": "DOWN"
+        }
+      ],
+      "effect": {
+        "set_up": [
+          "currencyservice"
+        ],
+        "set_down": []
+      },
+      "metadata": {
+        "label": "RIPPLECUT-MODELED HYPOTHETICAL",
+        "exists_in_online_boutique": false
+      }
+    },
+    {
+      "id": "restart_checkoutservice",
+      "name": "Restart checkoutservice",
+      "description": "Modeled effect: checkoutservice becomes UP. It stays UP only if its modeled dependencies are UP (the cascade re-runs after every intervention).",
+      "cost": 1,
+      "targets": [
+        "checkoutservice"
+      ],
+      "preconditions": [
+        {
+          "service": "checkoutservice",
+          "state": "DOWN"
+        }
+      ],
+      "effect": {
+        "set_up": [
+          "checkoutservice"
+        ],
+        "set_down": []
+      },
+      "metadata": {
+        "label": "RIPPLECUT-MODELED",
+        "exists_in_online_boutique": false
+      }
+    },
+    {
+      "id": "restart_emailservice",
+      "name": "Restart emailservice",
+      "description": "Modeled effect: emailservice becomes UP.",
+      "cost": 1,
+      "targets": [
+        "emailservice"
+      ],
+      "preconditions": [
+        {
+          "service": "emailservice",
+          "state": "DOWN"
+        }
+      ],
+      "effect": {
+        "set_up": [
+          "emailservice"
+        ],
+        "set_down": []
+      },
+      "metadata": {
+        "label": "RIPPLECUT-MODELED",
+        "exists_in_online_boutique": false
+      }
+    },
+    {
+      "id": "suppress_emailservice",
+      "name": "Suppress order-confirmation email calls",
+      "description": "Modeled load-shedding action. Modeled effect: emailservice is set DOWN. Load is not part of the Boolean MVP, so this action can never improve the objective; it is kept to show that the planner does not select it.",
+      "cost": 0,
+      "targets": [
+        "emailservice"
+      ],
+      "preconditions": [],
+      "effect": {
+        "set_up": [],
+        "set_down": [
+          "emailservice"
+        ]
+      },
+      "metadata": {
+        "label": "RIPPLECUT-MODELED",
+        "exists_in_online_boutique": false
+      }
+    }
+  ],
+  "action_conflicts": [
+    {
+      "actions": [
+        "checkout_backend_standby",
+        "payment_fallback"
+      ],
+      "resolution": "INVALID_COMBINATION",
+      "rationale": "Both redirect payment traffic; the model defines no composition, so the combination is rejected before simulation."
+    },
+    {
+      "actions": [
+        "checkout_backend_standby",
+        "shipping_fallback"
+      ],
+      "resolution": "INVALID_COMBINATION",
+      "rationale": "Both redirect shipping traffic; the model defines no composition, so the combination is rejected before simulation."
+    },
+    {
+      "actions": [
+        "restart_emailservice",
+        "suppress_emailservice"
+      ],
+      "resolution": "DEFINED_JOINT_EFFECT",
+      "joint_effect": {
+        "set_up": [],
+        "set_down": [
+          "emailservice"
+        ]
+      },
+      "rationale": "Explicit policy: when both are selected, suppression takes precedence and emailservice ends DOWN."
+    }
+  ],
+  "state_estimation": {
+    "note": "Thresholds are RippleCut configuration parameters, not learned or universal values (PDF §3.2).",
+    "down_error_rate_gte": 0.5,
+    "degraded_error_rate_gte": 0.05,
+    "degraded_latency_p95_ms_gte": 1000,
+    "degraded_cpu_utilization_gte": 0.9,
+    "missing_observation": "ERROR"
+  },
+  "presentation": {
+    "note": "UI layout only; has no effect on the model.",
+    "layout": {
+      "loadgenerator": [
+        70,
+        270
+      ],
+      "frontend": [
+        250,
+        270
+      ],
+      "checkoutservice": [
+        500,
+        150
+      ],
+      "recommendationservice": [
+        500,
+        430
+      ],
+      "adservice": [
+        500,
+        520
+      ],
+      "paymentservice": [
+        780,
+        20
+      ],
+      "shippingservice": [
+        780,
+        95
+      ],
+      "emailservice": [
+        780,
+        170
+      ],
+      "cartservice": [
+        780,
+        245
+      ],
+      "currencyservice": [
+        780,
+        320
+      ],
+      "productcatalogservice": [
+        780,
+        395
+      ]
+    }
+  }
+}

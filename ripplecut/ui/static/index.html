@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RippleCut: containment planner</title>
+<style>
+:root {
+  --paper: #EEF0EA; --panel: #F8F9F5; --ink: #1B2430; --muted: #5B6573; --rule: #C9CFC4;
+  --alarm: #C8323A; --alarm-soft: #F4D9D6; --contain: #13707A; --contain-soft: #D2E8E7; --amber: #B7790F;
+  --amber-soft: #F4E5C4; --focus: #2F5DA8;
+  --serif: "Palatino Linotype", Palatino, "Book Antiqua", "URW Palladio L", P052, Georgia, serif;
+  --sans: "Avenir Next", Avenir, "Segoe UI", "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #151B22; --panel: #1C242D; --ink: #E4E8E1; --muted: #9AA4AE; --rule: #33404C;
+          --alarm: #E5595F; --alarm-soft: #4A2427; --contain: #45B4B9; --contain-soft: #1D3D40;
+          --amber: #E0A43A; --amber-soft: #43361C; --focus: #86A8E6; }
+}
+* { box-sizing: border-box; }
+html { background: var(--paper); color: var(--ink); }
+body { margin: 0; font: 15px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
+h1 { font-size: 2.1rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.2rem; display: flex; gap: .6rem; align-items: baseline; }
+h2 .n { font-size: .95rem; color: var(--muted); font-weight: 400; min-width: 1.1rem; }
+h3 { font-size: 1rem; margin: .9rem 0 .3rem; }
+p { margin: .35rem 0; max-width: 72ch; }
+.math { font-family: var(--serif); font-style: italic; }
+button, select, textarea, input { font: inherit; color: inherit; }
+button { background: var(--panel); border: 1px solid var(--ink); border-radius: 3px; padding: .38rem .8rem; cursor: pointer; }
+button.primary { background: var(--ink); color: var(--paper); }
+button.link { border: none; background: none; padding: .15rem 0; text-align: left; text-decoration: underline;
+              text-decoration-color: var(--rule); text-underline-offset: 3px; cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+textarea { width: 100%; min-height: 4.6rem; resize: vertical; background: var(--panel); border: 1px solid var(--rule);
+           border-radius: 3px; padding: .5rem; }
+select { background: var(--panel); border: 1px solid var(--rule); border-radius: 3px; padding: .25rem; }
+
+header { padding: 1.4rem 2rem 1rem; border-bottom: 1px solid var(--rule); display: grid; gap: .25rem; }
+header .sub { color: var(--muted); max-width: 90ch; }
+.shell { display: grid; grid-template-columns: minmax(270px, 330px) 1fr; gap: 0; }
+aside { padding: 1.2rem 1.4rem 2rem 2rem; border-right: 1px solid var(--rule); }
+main { padding: 1.2rem 2rem 3rem 1.6rem; min-width: 0; }
+section.step { padding: 1rem 0 1.2rem; border-top: 1px solid var(--rule); }
+aside > section.step:first-child, main > section.step:first-child { border-top: none; padding-top: 0; }
+.row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-top: .5rem; }
+.muted { color: var(--muted); }
+.small { font-size: .86rem; }
+.scenario-list { list-style: none; padding: 0; margin: .3rem 0 0; }
+.scenario-list li { padding: .15rem 0; }
+.scenario-list .sid { color: var(--muted); font-size: .8rem; display: block; margin-top: -.15rem; }
+.resilience { margin-top: 1.1rem; padding: .7rem .8rem; border: 1px dashed var(--amber); border-radius: 3px; }
+.resilience label { display: flex; gap: .45rem; align-items: center; }
+pre.json { background: var(--panel); border: 1px solid var(--rule); border-radius: 3px; padding: .5rem .6rem;
+           margin: .4rem 0; white-space: pre-wrap; word-break: break-word; font-size: .82rem;
+           font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.banner { border-left: 4px solid var(--amber); background: var(--amber-soft); padding: .5rem .8rem; margin: .5rem 0; }
+.banner.bad { border-left-color: var(--alarm); background: var(--alarm-soft); }
+.banner.good { border-left-color: var(--contain); background: var(--contain-soft); }
+
+.graph-wrap { position: relative; overflow-x: auto; }
+svg.graph { width: 100%; min-width: 640px; height: auto; display: block; background:
+  repeating-linear-gradient(0deg, transparent 0 23px, color-mix(in srgb, var(--rule) 45%, transparent) 23px 24px),
+  repeating-linear-gradient(90deg, transparent 0 23px, color-mix(in srgb, var(--rule) 45%, transparent) 23px 24px);
+  border: 1px solid var(--rule); border-radius: 3px; }
+.node rect { stroke: var(--ink); stroke-width: 1; fill: var(--panel); transition: fill .35s, stroke .35s; }
+.node.critical rect.outer { fill: none; stroke: var(--ink); stroke-width: 1; }
+.node text { font: 13px var(--sans); fill: var(--ink); dominant-baseline: middle; text-anchor: middle; pointer-events: none; }
+.node.st-initial rect.body { fill: var(--alarm); stroke: var(--alarm); }
+.node.st-initial text { fill: #fff; }
+.node.st-degraded rect.body { fill: var(--amber-soft); stroke: var(--amber); }
+.node.st-cascade rect.body { fill: url(#hatch); stroke: var(--alarm); }
+.node.st-restored rect.body { fill: var(--contain-soft); stroke: var(--contain); stroke-width: 2; }
+.node.st-residual rect.body { fill: var(--alarm-soft); stroke: var(--alarm); }
+.edge { fill: none; stroke: var(--ink); stroke-width: 1.2; opacity: .75; }
+.edge.soft { stroke: var(--muted); stroke-dasharray: 4 4; stroke-width: 1; opacity: .6; }
+.edge.hot { stroke: var(--alarm); stroke-width: 2.4; opacity: 1; }
+.edge.cut { stroke: var(--contain); stroke-width: 2.2; opacity: 1; }
+.scrub { display: flex; gap: .35rem; flex-wrap: wrap; margin: .6rem 0 .2rem; }
+.scrub button { font-size: .85rem; padding: .22rem .6rem; }
+.scrub button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .82rem; color: var(--muted); margin-top: .4rem; }
+.legend i { display: inline-block; width: 14px; height: 11px; border: 1px solid var(--ink); vertical-align: -1px; margin-right: .3rem; }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 2.2rem; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .28rem .5rem .28rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); }
+.metric { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; margin: .6rem 0; }
+.metric div { border-top: 2px solid var(--ink); padding-top: .25rem; }
+.metric b { font-family: var(--serif); font-size: 1.7rem; font-weight: 600; display: block; line-height: 1.1; }
+.metric span { font-size: .82rem; color: var(--muted); }
+.tag { display: inline-block; padding: 0 .4rem; border: 1px solid currentColor; border-radius: 2px; font-size: .8rem; }
+.tag.good { color: var(--contain); } .tag.bad { color: var(--alarm); } .tag.warn { color: var(--amber); }
+ol.cascade { list-style: none; padding-left: 0; margin: .4rem 0; }
+ol.cascade li { margin: .25rem 0; }
+.why p { margin: .25rem 0; }
+.why p.indent { padding-left: 1.1rem; }
+details summary { cursor: pointer; color: var(--muted); margin-top: .5rem; }
+.empty { color: var(--muted); font-style: italic; }
+footer { padding: 1rem 2rem 2rem; color: var(--muted); font-size: .84rem; border-top: 1px solid var(--rule); }
+
+@media (max-width: 980px) {
+  .shell { grid-template-columns: 1fr; }
+  aside { border-right: none; border-bottom: 1px solid var(--rule); padding: 1rem 1.2rem; }
+  main { padding: 1rem 1.2rem 2rem; }
+  .grid2 { grid-template-columns: 1fr; }
+  header { padding: 1rem 1.2rem; }
+}
+@media (prefers-reduced-motion: reduce) { .node rect { transition: none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>RippleCut</h1>
+  <div class="sub">Containment planner for modeled cascading failures. It simulates how a failure spreads through an
+    explicit service model, searches the configured interventions for the lexicographically best plan, and has every
+    solver result independently re-checked. It recommends; a person approves.</div>
+  <div class="sub small" id="model-line"></div>
+</header>
+
+<div class="shell">
+<aside>
+  <section class="step" aria-labelledby="h-incident">
+    <h2 id="h-incident"><span class="n">1</span>Incident</h2>
+    <p class="small muted">Describe what failed, or pick a canonical scenario. Text is parsed deterministically; anything
+      the model cannot represent is rejected, not guessed.</p>
+    <label for="incident-text" class="small">Natural-language incident</label>
+    <textarea id="incident-text">paymentservice is down</textarea>
+    <div class="row">
+      <button id="btn-parse">Parse incident</button>
+      <button id="btn-run" class="primary">Run planner</button>
+    </div>
+    <div id="parse-out"></div>
+
+    <h3>Canonical scenarios</h3>
+    <p class="small muted">Same topology, rules and actions; only the incident changes.</p>
+    <ul class="scenario-list" id="scenario-list"></ul>
+
+    <div class="resilience">
+      <label><input type="checkbox" id="fault-on"> Solver failure simulation / resilience test</label>
+      <div class="row small">
+        <label for="fault-mode">Break the primary solver by</label>
+        <select id="fault-mode"></select>
+      </div>
+      <p class="small muted">Forces the first solver in the policy to fail so the fallback path and the validator can
+        be seen working. A test mode, not a production claim.</p>
+    </div>
+  </section>
+</aside>
+
+<main>
+  <section class="step" aria-labelledby="h-system">
+    <h2 id="h-system"><span class="n">2</span>System</h2>
+    <div class="graph-wrap"><svg class="graph" id="graph" role="img" aria-label="Service dependency graph"></svg></div>
+    <div class="scrub" id="scrub" aria-label="Cascade snapshots"></div>
+    <div class="legend">
+      <span><i style="background:var(--alarm);border-color:var(--alarm)"></i>initial failure</span>
+      <span><i style="background:var(--amber-soft);border-color:var(--amber)"></i>degraded (x = 0)</span>
+      <span><i style="background:var(--alarm-soft);border-color:var(--alarm)"></i>failed in the cascade</span>
+      <span><i style="background:var(--contain-soft);border-color:var(--contain)"></i>kept or restored by the plan</span>
+      <span><i style="outline:1px solid var(--ink);outline-offset:2px"></i>critical service</span>
+      <span>solid arrow: hard call, failure propagates; dashed arrow: soft call, it does not</span>
+    </div>
+    <details>
+      <summary>Dependency rules, criticality and interventions</summary>
+      <div class="grid2">
+        <div><h3>Rules <span class="small muted">(RippleCut-modeled; call edges are source-backed)</span></h3>
+          <div id="rules"></div></div>
+        <div><h3>Interventions <span class="small muted">(modeled, hypothetical)</span></h3><div id="actions"></div></div>
+      </div>
+    </details>
+  </section>
+
+  <div class="grid2">
+    <section class="step" aria-labelledby="h-cascade">
+      <h2 id="h-cascade"><span class="n">3</span>Cascade</h2>
+      <p class="small muted"><span class="math">x(t+1) = Φ(x(t))</span>, <span class="math">Φ(x)<sub>v</sub> = x<sub>v</sub> ∧ R<sub>v</sub>(x)</span>, iterated to a fixed point without intervention.</p>
+      <div id="cascade"><p class="empty">Run the planner to see the propagation rounds.</p></div>
+    </section>
+    <section class="step" aria-labelledby="h-planner">
+      <h2 id="h-planner"><span class="n">4</span>Planner</h2>
+      <div id="planner"><p class="empty">Solvers are chosen by configuration. Results appear here.</p></div>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <section class="step" aria-labelledby="h-result">
+      <h2 id="h-result"><span class="n">5</span>Result</h2>
+      <div id="result"><p class="empty">No plan yet.</p></div>
+    </section>
+    <section class="step why" aria-labelledby="h-why">
+      <h2 id="h-why"><span class="n">6</span>Why</h2>
+      <div id="why"><p class="empty">The explanation is built from the computed results, never from free text.</p></div>
+    </section>
+  </div>
+</main>
+</div>
+<footer id="footer"></footer>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let MODEL = null, REPORT = null, SNAP = [];
+
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} :
+    {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const data = await res.json();
+  if (!res.ok) throw data;
+  return data;
+}
+
+/* ---------------- graph ---------------- */
+const NW = 176, NH = 34;
+function drawGraph() {
+  const svg = $("graph"), L = MODEL.layout;
+  const xs = Object.values(L).map(p => p[0]), ys = Object.values(L).map(p => p[1]);
+  const minX = Math.min(...xs) - NW/2 - 20, maxX = Math.max(...xs) + NW/2 + 20;
+  const minY = Math.min(...ys) - NH/2 - 20, maxY = Math.max(...ys) + NH/2 + 20;
+  svg.setAttribute("viewBox", `${minX} ${minY} ${maxX-minX} ${maxY-minY}`);
+  let s = `<defs>
+    <pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="7" height="7" fill="var(--alarm-soft)"/><line x1="0" y1="0" x2="0" y2="7" stroke="var(--alarm)" stroke-width="2"/></pattern>`;
+  for (const [id, col] of [["ink","var(--ink)"],["muted","var(--muted)"],["alarm","var(--alarm)"],["contain","var(--contain)"]])
+    s += `<marker id="arr-${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${col}"/></marker>`;
+  s += `</defs>`;
+  for (const e of MODEL.edges) {
+    const a = L[e.from], b = L[e.to]; if (!a || !b) continue;
+    let d;
+    if (Math.abs(b[0] - a[0]) < NW) {                       // stacked nodes: connect bottom/top
+      const v = b[1] >= a[1] ? 1 : -1, sy = a[1] + v*NH/2, ty = b[1] - v*NH/2, dy = (ty - sy) / 2;
+      d = `M${a[0]},${sy} C${a[0]},${sy+dy} ${b[0]},${ty-dy} ${b[0]},${ty}`;
+    } else {
+      const dir = b[0] >= a[0] ? 1 : -1;
+      const sx = a[0] + dir*NW/2, sy = a[1], tx = b[0] - dir*NW/2, ty = b[1], dx = (tx - sx) / 2;
+      d = `M${sx},${sy} C${sx+dx},${sy} ${tx-dx},${ty} ${tx},${ty}`;
+    }
+    const cls = e.strength === "soft" ? "edge soft" : "edge";
+    s += `<path class="${cls}" data-from="${esc(e.from)}" data-to="${esc(e.to)}" data-strength="${e.strength}"
+      d="${d}" marker-end="url(#arr-${e.strength==="soft"?"muted":"ink"})">
+      <title>${esc(e.from)} calls ${esc(e.to)} (${e.strength}; ${esc(e.topology)}): ${esc(e.evidence)}</title></path>`;
+  }
+  for (const sv of MODEL.services) {
+    const p = L[sv.id]; if (!p) continue;
+    const crit = sv.critical;
+    s += `<g class="node ${crit ? "critical" : ""}" data-id="${esc(sv.id)}" transform="translate(${p[0]-NW/2},${p[1]-NH/2})">
+      <title>${esc(sv.id)}: ${esc(sv.description)} (${esc(sv.class.replace("_"," "))})</title>
+      ${crit ? `<rect class="outer" x="-4" y="-4" width="${NW+8}" height="${NH+8}" rx="5"/>` : ""}
+      <rect class="body" width="${NW}" height="${NH}" rx="3"/>
+      <text x="${NW/2}" y="${NH/2+1}">${esc(sv.id)}</text></g>`;
+  }
+  svg.innerHTML = s;
+}
+
+function paint(snap) {
+  document.querySelectorAll("#graph .node").forEach(g => {
+    g.classList.remove("st-initial","st-cascade","st-degraded","st-restored","st-residual");
+    const st = snap.states[g.dataset.id]; if (st) g.classList.add("st-" + st);
+  });
+  document.querySelectorAll("#graph .edge").forEach(p => {
+    p.classList.remove("hot","cut");
+    const key = p.dataset.from + ">" + p.dataset.to;
+    let marker = p.dataset.strength === "soft" ? "muted" : "ink";
+    if (snap.hot && snap.hot.has(key)) { p.classList.add("hot"); marker = "alarm"; }
+    if (snap.cut && snap.cut.has(key)) { p.classList.add("cut"); marker = "contain"; }
+    p.setAttribute("marker-end", `url(#arr-${marker})`);
+  });
+  document.querySelectorAll("#scrub button").forEach((b, i) => b.setAttribute("aria-pressed", String(SNAP[i] === snap)));
+}
+
+function buildSnapshots(r) {
+  const uc = r.uncontrolled_cascade, initialDown = new Set(uc.rounds[0].down);
+  const degraded = new Set((r.incident && r.incident.degraded_services) || []);
+  const rules = {}; MODEL.edges.forEach(e => { if (e.strength === "hard") (rules[e.from] ||= []).push(e.to); });
+  const snaps = [];
+  let prevDown = new Set();
+  uc.rounds.forEach((rnd) => {
+    const down = new Set(rnd.down), states = {}, hot = new Set();
+    for (const s of down) states[s] = degraded.has(s) ? "degraded" : (initialDown.has(s) ? "initial" : "cascade");
+    for (const s of rnd.newly_failed) for (const u of (rules[s] || [])) if (prevDown.has(u)) hot.add(s + ">" + u);
+    snaps.push({label: rnd.round === 0 ? "x(0) initial" : `round ${rnd.round}`, states, hot});
+    prevDown = down;
+  });
+  if (snaps.length) snaps[snaps.length-1].label += uc.rounds.length === 1 ? " = fixed point" : " = fixed point x*";
+  if (r.contained_cascade) {
+    const cc = r.contained_cascade, finalDown = new Set(cc.final_down), states = {}, cut = new Set();
+    for (const s of MODEL.services.map(x => x.id)) {
+      if (finalDown.has(s)) states[s] = degraded.has(s) ? "degraded" : "residual";
+      else if (prevDown.has(s)) states[s] = "restored";
+    }
+    for (const [d, ups] of Object.entries(rules)) for (const u of ups)
+      if (states[u] === "restored" && !finalDown.has(d)) cut.add(d + ">" + u);
+    snaps.push({label: "with plan  x*_B", states, cut});
+  }
+  return snaps;
+}
+
+function showSnapshots(r, animate) {
+  SNAP = buildSnapshots(r);
+  const box = $("scrub"); box.innerHTML = "";
+  SNAP.forEach((sn) => { const b = document.createElement("button"); b.textContent = sn.label;
+    b.onclick = () => paint(sn); box.appendChild(b); });
+  if (!animate || reduceMotion) { paint(SNAP[SNAP.length-1]); return; }
+  SNAP.forEach((sn, i) => setTimeout(() => paint(sn), i * 750));
+}
+
+/* ---------------- panels ---------------- */
+function renderModelInfo() {
+  const m = MODEL.model;
+  $("model-line").textContent = `${m.name}. Topology source-backed from ${m.reference_system} at commit ${String(m.source_commit_inspected).slice(0,12)}; rules, criticality, actions and costs are RippleCut-modeled. Critical services required: ${MODEL.c_min}.`;
+  $("rules").innerHTML = Object.values(MODEL.rules).map(r => `<p class="small"><span class="math">${esc(r)}</span></p>`).join("") +
+    `<p class="small"><b>Critical:</b> ${esc(MODEL.services.filter(s => s.critical).map(s => s.id).join(", "))}</p>
+     <p class="small"><b>Non-critical:</b> ${esc(MODEL.services.filter(s => s.class === "non_critical").map(s => s.id).join(", "))};
+     <b>infrastructure:</b> ${esc(MODEL.services.filter(s => s.class === "infrastructure").map(s => s.id).join(", "))}</p>`;
+  $("actions").innerHTML = `<table><tr><th>action</th><th>cost</th><th>effect</th><th>precondition</th></tr>` +
+    MODEL.actions.map(a => `<tr><td>${esc(a.id)}</td><td>${a.cost}</td><td>${a.set_up.length ? "UP " + esc(a.set_up.join(", ")) : ""}${a.set_down.length ? "DOWN " + esc(a.set_down.join(", ")) : ""}</td>
+      <td>${esc(a.preconditions.map(p => p.service + " " + p.state).join(", ") || "none")}</td></tr>`).join("") + `</table>` +
+    `<p class="small muted">Conflicts: ${esc(MODEL.conflicts.map(c => c.actions.join(" + ") + " (" + c.resolution + ")").join("; "))}</p>`;
+  $("scenario-list").innerHTML = MODEL.scenarios.map(s => `<li><button class="link" data-sid="${esc(s.id)}">${esc(s.title)}</button><span class="sid">${esc(s.label)}</span></li>`).join("");
+  document.querySelectorAll("#scenario-list button").forEach(b => b.onclick = () => run({scenario_id: b.dataset.sid}));
+  $("fault-mode").innerHTML = MODEL.fault_modes.map(m => `<option value="${m}">${m.replace("_", " ")}</option>`).join("");
+  $("footer").innerHTML = `Solvers registered: ${esc(MODEL.solvers.map(s => s.name + " (" + s.kind.toLowerCase() + ")").join(", "))}. Execution order from config/solver_policy.json: ${esc(MODEL.policy.execution_order.join(", then "))}.
+    Scenarios are controlled RippleCut scenarios; no RCAEval case was inspected in this build. RippleCut does not execute remediation.`;
+}
+
+function renderParse(p, target) {
+  const box = $(target);
+  if (p.status === "OK") {
+    box.innerHTML = `<div class="banner good small">Parsed with ${esc(p.parser)}.</div><pre class="json">${esc(JSON.stringify(p.structured_incident && {failed_services: p.structured_incident.failed_services, degraded_services: p.structured_incident.degraded_services}, null, 1))}</pre>`;
+    return;
+  }
+  let html = `<div class="banner bad small"><b>${esc(p.status)}.</b> ${esc(p.message)}</div>`;
+  if (p.alternatives && p.alternatives.length) {
+    html += p.alternatives.map((a, i) => `<p class="small"><button class="link" data-alt="${i}">${esc(a.label)}</button></p>`).join("");
+  }
+  box.innerHTML = html;
+  box.querySelectorAll("button[data-alt]").forEach(b => b.onclick = () => run({incident: p.alternatives[+b.dataset.alt].incident}));
+}
+
+function renderCascade(r) {
+  const uc = r.uncontrolled_cascade, ex = r.explanation;
+  let html = `<ol class="cascade"><li>Initial: <b>${esc(uc.rounds[0].down.join(", ") || "nothing")}</b> not UP</li>`;
+  for (const rnd of ex.cascade) html += `<li>Round ${rnd.round}: ` + rnd.newly_failed.map(it =>
+    `<b>${esc(it.service)}</b> fails (hard input ${esc(it.because_down.join(", "))} DOWN)`).join("; ") + `</li>`;
+  html += `</ol><p class="small">Fixed point after ${uc.state_changing_rounds} state-changing round(s) and ${uc.phi_evaluations} evaluations of <span class="math">Φ</span> (bound: ${uc.round_limit}).
+    DOWN at <span class="math">x*</span>: <b>${esc(uc.final_down.join(", "))}</b>.</p>`;
+  const lost = ex.uncontrolled_critical_down;
+  html += lost.length ? `<div class="banner bad small">Without intervention ${lost.length} critical service(s) are lost: ${esc(lost.join(", "))}.</div>`
+                      : `<div class="banner good small">Every critical service stays UP without intervention.</div>`;
+  $("cascade").innerHTML = html;
+}
+
+function renderPlanner(r) {
+  const pl = r.planner;
+  let html = "";
+  if (r.resilience_test) html += `<div class="banner small"><b>${esc(r.resilience_test.label)}.</b> Forcing <b>${esc(r.resilience_test.mode.replace("_"," "))}</b> in ${esc(r.resilience_test.target_solver)}.</div>`;
+  html += `<p class="small">Search space: m = ${r.problem.m} actions, 2<sup>m</sup> = ${r.problem.candidates} candidate plans. Order: ${esc(pl.policy.execution_order.join(", then "))}.</p>`;
+  html += `<table><tr><th>solver</th><th>status</th><th>outcome</th><th>ms</th><th>nodes</th></tr>` + pl.attempts.map(a => {
+    const res = a.result, ok = a.outcome === "ACCEPTED";
+    return `<tr><td>${esc(a.solver)} <span class="small muted">${esc(a.kind.toLowerCase())}</span></td>
+      <td><span class="tag ${ok ? "good" : "bad"}">${esc(res.status)}</span></td><td>${esc(a.outcome.replaceAll("_"," ").toLowerCase())}</td>
+      <td>${(res.runtime_seconds*1000).toFixed(2)}</td><td>${res.nodes_explored ?? "–"}</td></tr>` +
+      (!ok && res.error ? `<tr><td colspan="5" class="small muted">${esc(res.error)}</td></tr>` : "");
+  }).join("") + `</table>`;
+  const v = pl.verification || {};
+  html += `<p class="small">Exact cross-check: <b>${esc(v.status)}</b>${(v.checks||[]).map(c => `; ${esc(c.solver)}: ${esc(c.verdict||c.status)}`).join("")}.</p>`;
+  if (pl.validation) html += `<details><summary>Independent validator checks (${pl.validation.checks.filter(c => c.passed).length}/${pl.validation.checks.length} passed)</summary><table>` +
+    pl.validation.checks.map(c => `<tr><td>${c.passed ? "✓" : "✗"}</td><td>${esc(c.name)}</td><td class="small">${esc(c.detail)}</td></tr>`).join("") + `</table></details>`;
+  $("planner").innerHTML = html;
+}
+
+function renderResult(r) {
+  const res = r.result, box = $("result");
+  if (r.status === "SUCCESS") {
+    const o = res.objective, actions = r.explanation.selected_plan;
+    box.innerHTML = `<p>${actions.length ? "Recommended containment plan:" : "Recommended: do nothing. Every critical service stays UP and any action would only add cost."}</p>
+      ${actions.length ? `<table><tr><th>action</th><th>cost</th><th>label</th></tr>${actions.map(a => `<tr><td><b>${esc(a.id)}</b><br><span class="small muted">${esc(a.name)}</span></td><td>${a.cost}</td><td class="small">${esc(a.label)}</td></tr>`).join("")}</table>` : ""}
+      <div class="metric"><div><b>${o.K}</b><span>total cost K</span></div><div><b>${o.N}</b><span>actions N</span></div>
+        <div><b>${o.R}</b><span>residual failures R</span></div><div><b>${o.C}/${o.C_min}</b><span>critical UP C</span></div></div>
+      <p class="small">Optimality: <span class="tag ${res.optimality_status === "PROVEN_OPTIMAL" ? "good" : "warn"}">${esc(res.optimality_status)}</span>.
+        Validation: <span class="tag good">${esc(res.validation_status)}</span>, by the independent validator. Solver: ${esc(res.selected_solver)}${res.fallback_count ? `, after ${res.fallback_count} fallback(s)` : ""}.</p>
+      ${o.residual_services.length ? `<p class="small muted">Still DOWN after the plan: ${esc(o.residual_services.join(", "))}.</p>` : ""}
+      <div class="row"><button class="primary" id="btn-approve">Approve plan (simulated)</button><span class="small muted" id="approve-out">${esc(r.approval.status)}</span></div>`;
+    $("btn-approve").onclick = approve;
+  } else if (r.status === "NO_FEASIBLE_PLAN") {
+    box.innerHTML = `<div class="banner bad"><b>No feasible plan.</b> The configured intervention set cannot preserve all designated critical services under the current RippleCut model.</div>
+      <p class="small">Infeasibility ${res.infeasibility_certified ? "<b>certified</b> independently by the validator's monotone bound" : "accepted from a completed exact search (not independently certified)"}. The critical-service constraint is never relaxed.</p>`;
+  } else {
+    box.innerHTML = `<div class="banner bad"><b>${esc(r.status)}.</b> Every configured solver failed or was rejected by the validator. No plan is fabricated.</div>`;
+  }
+}
+
+function renderWhy(r) {
+  const lines = r.explanation.text.split("\n");
+  let html = lines.map(l => `<p class="small ${/^\s/.test(l) ? "indent" : ""}">${esc(l.trim())}</p>`).join("");
+  $("why").innerHTML = html;
+}
+
+function renderError(r) {
+  const msg = (r.error && r.error.message) || (r.parse && r.parse.message) || r.message || "request failed";
+  if (r.parse) renderParse(r.parse, "parse-out");
+  else $("parse-out").innerHTML = `<div class="banner bad small"><b>${esc(r.status || r.code)}.</b> ${esc(msg)}</div>`;
+  for (const id of ["cascade","planner","result","why"]) $(id).innerHTML = `<p class="empty">Nothing ran: the incident was not accepted.</p>`;
+  SNAP = []; $("scrub").innerHTML = ""; paint({states: {}});
+}
+
+/* ---------------- actions ---------------- */
+function faultBody() { return $("fault-on").checked ? {fault: {mode: $("fault-mode").value}} : {}; }
+
+async function run(body) {
+  $("btn-run").disabled = true;
+  try {
+    const r = await api("/api/run", {...body, ...faultBody()});
+    REPORT = r;
+    if (!r.uncontrolled_cascade) { renderError(r); return; }
+    if (r.parse) renderParse(r.parse, "parse-out");
+    else $("parse-out").innerHTML = `<pre class="json">${esc(JSON.stringify({failed_services: r.incident.failed_services, degraded_services: r.incident.degraded_services, scenario_id: r.incident.scenario_id}, null, 1))}</pre>` +
+      (r.evidence ? `<div class="banner small">${esc(r.evidence.provenance.label)}. State estimated from observations with configured thresholds.</div>` : "");
+    renderCascade(r); renderPlanner(r); renderResult(r); renderWhy(r);
+    showSnapshots(r, true);
+  } catch (e) { renderError(e); }
+  finally { $("btn-run").disabled = false; }
+}
+
+async function approve() {
+  try {
+    const rec = await api("/api/approve", {run_id: REPORT.run_id});
+    $("approve-out").textContent = `${rec.status} at ${rec.approved_at}. Nothing was executed.`;
+    $("btn-approve").disabled = true;
+  } catch (e) { $("approve-out").textContent = e.message || "approval failed"; }
+}
+
+$("btn-run").onclick = () => run({text: $("incident-text").value});
+$("btn-parse").onclick = async () => {
+  try { renderParse(await api("/api/parse", {text: $("incident-text").value}), "parse-out"); }
+  catch (e) { $("parse-out").innerHTML = `<div class="banner bad small">${esc(e.message || "parse failed")}</div>`; }
+};
+
+(async () => {
+  try {
+    MODEL = await api("/api/model");
+    drawGraph(); renderModelInfo(); paint({states: {}});
+  } catch (e) {
+    document.body.insertAdjacentHTML("afterbegin", `<div class="banner bad">Could not load the model: ${esc(e.message || e)}</div>`);
+  }
+})();
+</script>
+</body>
+</html>

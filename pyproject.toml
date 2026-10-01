@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ripplecut"
+version = "1.0.0"
+description = "Containment planner for modeled cascading failures (Team 3 Idiots). Deterministic core, pluggable solvers, independent validation."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []                 # standard library only at runtime
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+ripplecut = "ripplecut.cli:main"
+
+[tool.setuptools]
+packages = ["ripplecut", "ripplecut.model", "ripplecut.engine", "ripplecut.solvers", "ripplecut.validation",
+            "ripplecut.incident", "ripplecut.evidence", "ripplecut.explain", "ripplecut.ui"]
+
+[tool.setuptools.package-data]
+"ripplecut.ui" = ["static/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

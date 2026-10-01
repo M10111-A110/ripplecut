@@ -1,0 +1,24 @@
+{
+  "solvers": {
+    "notes": "Solver selection is configuration, not architecture (master spec §30). Every name must be registered; primary/fallback solvers must be enabled.",
+    "enabled": ["branch_and_bound", "exhaustive"],
+    "primary": ["branch_and_bound"],
+    "fallback": ["exhaustive"],
+    "limits": {
+      "timeout_seconds": 10,
+      "max_evaluations": 200000,
+      "grace_seconds": 0.5
+    },
+    "validation": {
+      "required": true,
+      "accept_uncertified_infeasibility_from_exact_solver": true
+    },
+    "timeout_policy": {
+      "accept_validated_incumbent_if_all_fail": false
+    },
+    "verification": {
+      "cross_check_solvers": ["exhaustive"],
+      "max_actions": 12
+    }
+  }
+}
