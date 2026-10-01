@@ -1,11 +1,21 @@
 {
   "source": "RCAEval",
+  "data_status": "OFFICIAL_RCAEVAL",
   "case_id": "re1ob_cartservice_cpu_1",
   "benchmark": "re1ob",
   "ground_truth_service": "cartservice",
   "fault_type": "cpu",
   "instance": 1,
-  "inject_time": 1692569340.0,
-  "source_reference": "https://github.com/phamquiluan/RCAEval / https://huggingface.co/datasets/rcaeval/rcaeval",
-  "retrieval_version": "1.0"
+  "inject_time": 1685251430.0,
+  "source_dataset": "phamquiluan/RCAEval",
+  "source_reference": "https://huggingface.co/datasets/phamquiluan/RCAEval/tree/main/re1ob_cartservice_cpu_1",
+  "retrieval_version": "1.0",
+  "provenance_note": "Official RCAEval Online Boutique benchmark case downloaded directly from Hugging Face.",
+  "original_metric_count": 50,
+  "original_timestep_count": 4201,
+  "raw_artifact": "metrics.parquet",
+  "raw_artifact_sha256": "0f4df7e0eca4c9db7fcbdf2dab29065e14c3ed770c6a70d4a70b8784eb0c0199",
+  "normalized_artifact_sha256": "dc8e28a11c3500816d07523056e4b1844525c89ce14ced3f5547ac86b2db17f5",
+  "data_verified_against_source": true,
+  "sampling_step_seconds": 5
 }

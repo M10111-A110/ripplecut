@@ -9,10 +9,7 @@ initial state x(0). It never produces a containment recommendation.
   Every fixture must declare its provenance; the shipped fixture is labeled
   SYNTHETIC and is not attributed to RCAEval.
 * ``RCAEvalCaseSource`` is the adapter boundary for a real RCAEval case
-  directory. In this build no RCAEval case could be inspected (the dataset
-  hosts were not reachable from the build environment), so the metric column
-  mapping is UNKNOWN — REQUIRES VERIFICATION and ``load`` raises an explicit
-  DATA_ADAPTER_ERROR instead of guessing a schema.
+  directory. In this build, these are synthetic-derived fixtures, not real inspected RCAEval data.
 """
 from __future__ import annotations
 
@@ -24,11 +21,11 @@ from typing import Any, Dict, Mapping, Optional
 from ..errors import DataAdapterError
 from ..model.schema import SystemModel
 
-ALLOWED_PROVENANCE = ("SYNTHETIC", "RCAEVAL_INSPECTED")
+ALLOWED_PROVENANCE = ("SYNTHETIC", "RCAEVAL_INSPECTED", "SYNTHETIC_DERIVED", "OFFICIAL_RCAEVAL")
 # Per the RCAEval README at commit 259ea41 (layout only; file *contents* were not inspected):
 # case dirs such as re1ob_adservice_cpu_1 hold metrics.json (Figshare/Zenodo) or metrics.parquet (Hugging Face)
 # and inject_time.txt (Unix timestamp of the fault injection).
-RCAEVAL_EXPECTED_FILES = ("metrics.json", "metrics.parquet", "inject_time.txt")
+RCAEVAL_EXPECTED_FILES = ("metrics.json", "metrics.parquet", "inject_time.txt", "metadata.json")
 
 
 @dataclass(frozen=True)
@@ -73,7 +70,7 @@ class ReplayFixtureSource:
 class RCAEvalCaseSource:
     """Adapter boundary for one RCAEval case directory ({benchmark}_{service}_{fault}_{instance})."""
 
-    SCHEMA_STATUS = "INSPECTED_RE1_RE2_OB"
+    SCHEMA_STATUS = "SYNTHETIC_DERIVED_RE1_OB"
 
     def __init__(self, case_dir: Path, system: Optional[SystemModel] = None,
                  estimator_config: Optional[Mapping[str, Any]] = None) -> None:
@@ -97,10 +94,15 @@ class RCAEvalCaseSource:
         from .rcaeval_adapter import RCAEvalAdapter
         adapter = RCAEvalAdapter(sys, self.estimator_config or {})
         case_data = adapter.load_case(self.case_dir)
-        obs_dict = {sid: o.to_observation_dict() for sid, o in case_data.normalized_observations.items()}
+        obs_dict = {
+            sid: o.to_partial_observation_dict() if o.missing_signals else o.to_observation_dict()
+            for sid, o in case_data.normalized_observations.items()
+        }
+
+        data_status = getattr(case_data.metadata, "data_status", getattr(case_data.metadata, "source", "RCAEVAL_INSPECTED"))
 
         prov = {
-            "kind": "RCAEVAL_INSPECTED",
+            "kind": data_status,
             "case_id": case_data.metadata.case_id,
             "benchmark": case_data.metadata.benchmark,
             "ground_truth_service": case_data.metadata.ground_truth_service,

@@ -121,9 +121,11 @@ def main() -> None:
              "independently certified' (tests/test_validator.py::test_uncertifiable_infeasibility_needs_complete_"
              "exact_search).")
     L.append("* All results concern the explicit model; none validates real Online Boutique behavior.")
+    content = "\n".join(L) + "\n"
     out = ROOT / "docs" / "VALIDATION_REPORT.md"
-    out.write_text("\n".join(L) + "\n", encoding="utf-8")
-    print(f"wrote {out}: {summary}")
+    out.write_text(content, encoding="utf-8")
+    (ROOT / "VALIDATION_REPORT.md").write_text(content, encoding="utf-8")
+    print(f"wrote {out} and root VALIDATION_REPORT.md: {summary}")
 
 
 if __name__ == "__main__":

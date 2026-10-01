@@ -20,24 +20,32 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Dict, List, Mapping, Tuple
 
 from ..errors import DataAdapterError
 from ..model.schema import State, SystemModel
 
 UP, DEGRADED, DOWN = "UP", "DEGRADED", "DOWN"
+INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
 FIELDS = ("latency_p95_ms", "error_rate", "request_rate", "cpu_utilization")
 THRESHOLD_KEYS = ("down_error_rate_gte", "degraded_error_rate_gte", "degraded_latency_p95_ms_gte",
                   "degraded_cpu_utilization_gte")
 
 
+class EvidenceClassification(str, Enum):
+    SUFFICIENT = "SUFFICIENT"
+    PARTIAL = "PARTIAL"
+    INSUFFICIENT = "INSUFFICIENT"
+
+
 @dataclass(frozen=True)
 class Observation:
     service: str
-    latency_p95_ms: float
-    error_rate: float
-    request_rate: float
-    cpu_utilization: float
+    latency_p95_ms: Optional[float] = None
+    error_rate: Optional[float] = None
+    request_rate: Optional[float] = None
+    cpu_utilization: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +56,9 @@ class ServiceState:
     observation: Observation
     reason: str
     source: str
+    evidence: str = "SUFFICIENT"
+    available_signals: Tuple[str, ...] = ()
+    missing_signals: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -66,6 +77,7 @@ class EstimatedState:
     def to_dict(self) -> Dict[str, Any]:
         return {"source": self.source, "thresholds": dict(self.thresholds),
                 "services": [{"service": s.service_id, "state": s.state, "formal_x": s.formal, "reason": s.reason,
+                              "evidence": s.evidence, "available_signals": s.available_signals, "missing_signals": s.missing_signals,
                               "observation": {f: getattr(s.observation, f) for f in FIELDS}}
                              for s in self.services]}
 
@@ -87,6 +99,22 @@ def parse_observation(service: str, raw: Any) -> Observation:
     for f in ("error_rate", "cpu_utilization"):
         if vals[f] > 1:
             raise DataAdapterError(f"{service}.{f} must be a fraction in [0, 1] (got {vals[f]})")
+    return Observation(service=service, **vals)
+
+
+def parse_partial_observation(service: str, raw: Any, missing_signals: Tuple[str, ...]) -> Observation:
+    if not isinstance(raw, Mapping):
+        raise DataAdapterError(f"observation for {service} must be an object with fields {list(FIELDS)}")
+    vals = {}
+    for f in FIELDS:
+        if f in missing_signals:
+            vals[f] = None
+        elif f in raw and raw[f] is not None:
+            vals[f] = _number(raw[f], f"{service}.{f}")
+            if f in ("error_rate", "cpu_utilization") and vals[f] > 1:
+                raise DataAdapterError(f"{service}.{f} must be a fraction in [0, 1] (got {vals[f]})")
+        else:
+            raise DataAdapterError(f"observation for {service}: missing non-optional signal '{f}'")
     return Observation(service=service, **vals)
 
 
@@ -131,4 +159,75 @@ class StateEstimator:
             obs = parse_observation(sid, observations[sid])
             state, reason = self.classify(obs)
             out.append(ServiceState(sid, state, 1 if state == UP else 0, obs, reason, source))
+        return EstimatedState(tuple(out), dict(self.t), source)
+
+    def classify_partial(self, obs: Observation, missing: Tuple[str, ...]) -> Tuple[str, str, str]:
+        """Returns (state, reason, evidence_classification)"""
+        if not missing:
+            state, reason = self.classify(obs)
+            return state, reason, EvidenceClassification.SUFFICIENT.value
+        
+        available = set(FIELDS) - set(missing)
+        if not available:
+            return UP, "no signals available to evaluate", EvidenceClassification.INSUFFICIENT.value
+        
+        t = self.t
+        if "error_rate" in available and obs.error_rate >= t["down_error_rate_gte"]:
+            return DOWN, f"error_rate {obs.error_rate:g} >= {t['down_error_rate_gte']:g}", EvidenceClassification.PARTIAL.value
+        
+        reasons = []
+        if "error_rate" in available and obs.error_rate >= t["degraded_error_rate_gte"]:
+            reasons.append(f"error_rate {obs.error_rate:g} >= {t['degraded_error_rate_gte']:g}")
+        if "latency_p95_ms" in available and obs.latency_p95_ms >= t["degraded_latency_p95_ms_gte"]:
+            reasons.append(f"latency_p95_ms {obs.latency_p95_ms:g} >= {t['degraded_latency_p95_ms_gte']:g}")
+        if "cpu_utilization" in available and obs.cpu_utilization >= t["degraded_cpu_utilization_gte"]:
+            reasons.append(f"cpu_utilization {obs.cpu_utilization:g} >= {t['degraded_cpu_utilization_gte']:g}")
+        
+        if reasons:
+            return DEGRADED, "; ".join(reasons), EvidenceClassification.PARTIAL.value
+        
+        skipped = ", ".join(sorted(missing))
+        return UP, f"available signals below thresholds (missing: {skipped})", EvidenceClassification.PARTIAL.value
+
+    def estimate_partial(self, system: SystemModel, observations: Mapping[str, Any], source: str, signal_availability: Mapping[str, Mapping[str, str]]) -> EstimatedState:
+        """
+        Like estimate(), but handles partial evidence.
+        
+        signal_availability: Mapping[service_id, Mapping[signal_name, SignalStatus]]
+        """
+        if not isinstance(observations, Mapping):
+            raise DataAdapterError("observations must map service id -> observation")
+        unknown = sorted(set(observations) - set(system.service_ids))
+        if unknown:
+            raise DataAdapterError(f"observations reference services outside the model: {unknown}")
+        missing_services = [s for s in system.service_ids if s not in observations]
+        if missing_services:
+            raise DataAdapterError(f"missing observation(s) for {missing_services}; partial mode requires an Observation object even if all signals are MISSING")
+
+        out = []
+        for sid in system.service_ids:
+            svc_availability = signal_availability.get(sid, {})
+            missing_sigs = tuple(f for f in FIELDS if svc_availability.get(f) == "MISSING")
+            avail_sigs = tuple(f for f in FIELDS if f not in missing_sigs)
+            obs = parse_partial_observation(sid, observations[sid], missing_sigs)
+
+            state, reason, evidence = self.classify_partial(obs, missing_sigs)
+            
+            if evidence == EvidenceClassification.INSUFFICIENT.value:
+                formal = 0
+                state = INSUFFICIENT_EVIDENCE
+            else:
+                formal = 1 if state == UP else 0
+                
+            out.append(ServiceState(
+                service_id=sid,
+                state=state,
+                formal=formal,
+                observation=obs,
+                reason=reason,
+                source=source,
+                evidence=evidence,
+                available_signals=avail_sigs,
+                missing_signals=missing_sigs
+            ))
         return EstimatedState(tuple(out), dict(self.t), source)

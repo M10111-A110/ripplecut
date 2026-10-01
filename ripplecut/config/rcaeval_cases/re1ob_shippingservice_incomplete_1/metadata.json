@@ -1,11 +1,17 @@
 {
-  "source": "RCAEval",
+  "source": "SYNTHETIC_DERIVED",
+  "data_status": "SYNTHETIC_DERIVED",
   "case_id": "re1ob_shippingservice_incomplete_1",
   "benchmark": "re1ob",
   "ground_truth_service": "shippingservice",
   "fault_type": "incomplete",
   "instance": 1,
   "inject_time": 1692569340.0,
-  "source_reference": "https://github.com/phamquiluan/RCAEval / https://huggingface.co/datasets/rcaeval/rcaeval",
-  "retrieval_version": "1.0"
+  "source_reference": "https://github.com/phamquiluan/RCAEval",
+  "retrieval_version": "1.0",
+  "provenance_note": "This case ID does NOT exist in the official RCAEval dataset. The fault type 'incomplete' is not an RCAEval fault type. This fixture was hand-crafted with intentionally missing cpu_utilization and error_rate columns to exercise RippleCut's partial-evidence handling. Contains SYNTHETIC data with 8 timestamps.",
+  "original_timestep_count": null,
+  "original_metric_count": null,
+  "data_verified_against_source": false,
+  "official_rcaeval_case_exists": false
 }

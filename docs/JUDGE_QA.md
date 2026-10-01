@@ -82,13 +82,18 @@ One honest limit: the validator shares the single engine by design, so it catche
 bugs. The engine is covered by hand-calculated tests and property tests.
 
 **What does RCAEval contribute?**
-RCAEval provides real inspected cases (`config/rcaeval_cases/`, e.g. `re1ob_cartservice_cpu_1`, `re1ob_paymentservice_delay_1`)
-with explicit multi-metric time-series data and injection timestamps. RippleCut enforces a strict boundary:
+RCAEval provides the directory layout convention, case naming structure, and evaluation benchmark design.
+In P0, RippleCut bundles three synthetic-derived test fixtures (`config/rcaeval_cases/`, e.g. `re1ob_cartservice_cpu_1`)
+with explicit multi-metric time-series schema and injection timestamps. **The bundled data is synthetic telemetry,
+not original RCAEval dataset data.** Only `re1ob_cartservice_cpu_1` corresponds to a real case ID in the official
+dataset. RippleCut enforces a strict boundary:
 1. Signal status: metrics are classified as `AVAILABLE`, `MISSING`, `UNSUPPORTED`, or `AMBIGUOUS`. Missing metrics are
-   never guessed or assumed to indicate failure.
-2. Separation of metrics: RCA localization accuracy evaluates anomaly detection, while containment metrics (cost K,
-   interventions N, residual failures R) evaluate safety interventions.
-3. Provenance: Every bundle is tagged with exact provenance (`RCAEVAL_INSPECTED` vs `SYNTHETIC_REPLAY`).
+   tracked explicitly and never silently converted into healthy defaults.
+2. Separation of metrics: RCA root-cause detection metrics evaluate anomaly detection (whether the ground-truth
+   service appears among anomalous services), while containment metrics (cost K, interventions N, residual
+   failures R) evaluate safety interventions.
+3. Provenance: Every bundle is tagged with exact provenance (`SYNTHETIC_DERIVED`, `SYNTHETIC_REPLAY`). Real RCAEval
+   data ingestion is deferred to P1.
 
 **What are the limitations?**
 

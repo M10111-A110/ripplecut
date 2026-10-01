@@ -43,6 +43,29 @@ class SignalStatus(str, Enum):
     AMBIGUOUS = "AMBIGUOUS"
 
 
+class EvidenceClassification(str, Enum):
+    SUFFICIENT = "SUFFICIENT"
+    PARTIAL = "PARTIAL"
+    INSUFFICIENT = "INSUFFICIENT"
+
+
+@dataclass(frozen=True)
+class DataProvenance:
+    source_dataset: str
+    source_repository: str
+    dataset_revision: str
+    case_id: str
+    benchmark: str
+    ground_truth_service: str
+    fault_type: str
+    inject_time: float
+    original_metric_count: Optional[int] = None
+    original_timestep_count: Optional[int] = None
+    source_artifact: str = ""
+    transformation_version: str = "1.0"
+    data_status: str = "SYNTHETIC_DERIVED"
+
+
 @dataclass(frozen=True)
 class RCAEvalCaseMetadata:
     case_id: str
@@ -53,8 +76,10 @@ class RCAEvalCaseMetadata:
     instance: int
     inject_time: float
     source: str = "RCAEval"
+    data_status: str = "OFFICIAL_RCAEVAL"
     source_reference: str = "https://github.com/phamquiluan/RCAEval"
     retrieval_version: str = "1.0"
+    inject_time_validated: bool = False
 
 
 @dataclass(frozen=True)
@@ -69,19 +94,31 @@ class ServiceSignal:
 @dataclass(frozen=True)
 class NormalizedServiceObservation:
     service: str
-    latency_p95_ms: float
-    error_rate: float
-    request_rate: float
-    cpu_utilization: float
+    latency_p95_ms: Optional[float]
+    error_rate: Optional[float]
+    request_rate: Optional[float]
+    cpu_utilization: Optional[float]
     signals: Mapping[str, ServiceSignal]
     missing_signals: Tuple[str, ...]
 
     def to_observation_dict(self) -> Dict[str, float]:
+        if self.missing_signals:
+            raise DataAdapterError(f"Cannot use to_observation_dict when signals are missing: {self.missing_signals}")
+        return {
+            "latency_p95_ms": float(self.latency_p95_ms) if self.latency_p95_ms is not None else 0.0,
+            "error_rate": float(self.error_rate) if self.error_rate is not None else 0.0,
+            "request_rate": float(self.request_rate) if self.request_rate is not None else 0.0,
+            "cpu_utilization": float(self.cpu_utilization) if self.cpu_utilization is not None else 0.0,
+        }
+
+    def to_partial_observation_dict(self) -> Dict[str, Any]:
         return {
             "latency_p95_ms": self.latency_p95_ms,
             "error_rate": self.error_rate,
             "request_rate": self.request_rate,
             "cpu_utilization": self.cpu_utilization,
+            "signals": self.signals,
+            "missing_signals": self.missing_signals,
         }
 
 
@@ -104,10 +141,12 @@ class RCAEvaluationReport:
     fault_type: str
     inject_time: float
     localized_services: Tuple[str, ...]
-    root_cause_hit: bool
+    root_cause_detected: bool
     state_classification: Mapping[str, str]
     signals_available: Mapping[str, List[str]]
     signals_missing: Mapping[str, List[str]]
+    metric_name: str = "ground_truth_presence"
+    metric_note: str = "This P0 metric checks whether the authoritative RCAEval root-cause service appears among services classified as anomalous. It is not a full RCAEval ranking metric."
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -117,10 +156,12 @@ class RCAEvaluationReport:
             "fault_type": self.fault_type,
             "inject_time": self.inject_time,
             "localized_services": list(self.localized_services),
-            "root_cause_hit": self.root_cause_hit,
+            "root_cause_detected": self.root_cause_detected,
             "state_classification": dict(self.state_classification),
             "signals_available": {k: list(v) for k, v in self.signals_available.items()},
             "signals_missing": {k: list(v) for k, v in self.signals_missing.items()},
+            "metric_name": self.metric_name,
+            "metric_note": self.metric_note,
         }
 
 
@@ -139,6 +180,17 @@ def parse_case_directory_name(dir_name: str) -> Tuple[str, str, str, int]:
 
     # Fallback if delimiter varies
     return "rcaeval", dir_name, "unknown", 1
+
+
+def validate_directory_against_metadata(dir_name: str, metadata: RCAEvalCaseMetadata) -> None:
+    parsed_benchmark, parsed_service, parsed_fault, parsed_instance = parse_case_directory_name(dir_name)
+    errors = []
+    if parsed_service != metadata.ground_truth_service:
+        errors.append(f"directory says service='{parsed_service}' but metadata says '{metadata.ground_truth_service}'")
+    if parsed_fault != metadata.fault_type:
+        errors.append(f"directory says fault='{parsed_fault}' but metadata says '{metadata.fault_type}'")
+    if errors:
+        raise DataAdapterError(f"DATA_ADAPTER_ERROR: case directory name disagrees with authoritative metadata: {'; '.join(errors)}")
 
 
 class RCAEvalAdapter:
@@ -168,9 +220,11 @@ class RCAEvalAdapter:
                 instance=int(meta_json.get("instance", 1)),
                 inject_time=float(meta_json.get("inject_time", 0.0)),
                 source=str(meta_json.get("source", "RCAEval")),
+                data_status=str(meta_json.get("data_status", meta_json.get("source", "OFFICIAL_RCAEVAL"))),
                 source_reference=str(meta_json.get("source_reference", "https://github.com/phamquiluan/RCAEval")),
                 retrieval_version=str(meta_json.get("retrieval_version", "1.0")),
             )
+            validate_directory_against_metadata(case_dir.name, metadata)
         else:
             inject_file = case_dir / "inject_time.txt"
             if not inject_file.exists():
@@ -192,14 +246,25 @@ class RCAEvalAdapter:
                 inject_time=inject_time,
             )
 
-        metrics_file = case_dir / "metrics.json"
-        if not metrics_file.exists():
-            raise DataAdapterError(f"RCAEval case missing metrics.json in {case_dir}")
+        metrics_parquet = case_dir / "metrics.parquet"
+        metrics_json = case_dir / "metrics.json"
 
-        try:
-            raw_metrics = json.loads(metrics_file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            raise DataAdapterError(f"Failed to parse metrics.json in {case_dir}: {exc}") from None
+        raw_metrics = None
+        if metrics_parquet.exists():
+            try:
+                import pyarrow.parquet as pq
+                table = pq.read_table(metrics_parquet)
+                raw_metrics = {col: [x if x is not None else 0.0 for x in table[col].to_pylist()] for col in table.column_names}
+            except Exception:
+                raw_metrics = None
+
+        if raw_metrics is None:
+            if not metrics_json.exists():
+                raise DataAdapterError(f"RCAEval case missing metrics.json or metrics.parquet in {case_dir}")
+            try:
+                raw_metrics = json.loads(metrics_json.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                raise DataAdapterError(f"Failed to parse metrics.json in {case_dir}: {exc}") from None
 
         return self._normalize_metrics(raw_metrics, metadata)
 
@@ -235,12 +300,9 @@ class RCAEvalAdapter:
         pre_count = sum(pre_mask)
         post_count = sum(post_mask)
 
-        # If all points are after or before, use half-and-half fallback windowing
-        if post_count == 0:
-            half = max(1, len(times) // 2)
-            pre_mask = [i < half for i in range(len(times))]
-            post_mask = [i >= half for i in range(len(times))]
-            pre_count, post_count = sum(pre_mask), sum(post_mask)
+        # If all points are after or before, inject_time does not meaningfully intersect the range
+        if post_count == 0 or pre_count == 0:
+            raise DataAdapterError(f"inject_time {inject_time} does not meaningfully intersect the timestamp range")
 
         normalized_by_service: Dict[str, NormalizedServiceObservation] = {}
 
@@ -295,7 +357,7 @@ class RCAEvalAdapter:
                 b_val = min(1.0, b_val / 100.0)
             signals["cpu_utilization"] = ServiceSignal("cpu_utilization", SignalStatus.AVAILABLE, p_val, b_val)
         else:
-            signals["cpu_utilization"] = ServiceSignal("cpu_utilization", SignalStatus.MISSING, value=0.0)
+            signals["cpu_utilization"] = ServiceSignal("cpu_utilization", SignalStatus.MISSING, value=None)
 
         # 2. Error rate
         err_series = find_series(["error_rate", "error", "errors", "error_count"])
@@ -310,22 +372,25 @@ class RCAEvalAdapter:
                 b_val = min(1.0, b_val / 100.0)
             signals["error_rate"] = ServiceSignal("error_rate", SignalStatus.AVAILABLE, p_val, b_val)
         else:
-            signals["error_rate"] = ServiceSignal("error_rate", SignalStatus.MISSING, value=0.0)
+            signals["error_rate"] = ServiceSignal("error_rate", SignalStatus.MISSING, value=None)
 
         # 3. Latency
-        lat_series = find_series(["latency", "latency_p95_ms", "duration", "response_time"])
+        lat_series = find_series(["latency", "latency_p95_ms", "latency-90", "latency-50", "latency_p90", "duration", "response_time"])
         if lat_series is not None:
             pre_vals = [lat_series[i] for i, m in enumerate(pre_mask) if m and i < len(lat_series)]
             post_vals = [lat_series[i] for i, m in enumerate(post_mask) if m and i < len(lat_series)]
             b_val = (sum(pre_vals) / len(pre_vals)) if pre_vals else 10.0
-            # Use max or 95th percentile in post window
             p_val = max(post_vals) if post_vals else b_val
+            # If latency values are reported in seconds (e.g. <= 30.0 s), convert to milliseconds for threshold comparison
+            if p_val <= 30.0 and b_val <= 10.0:
+                p_val = p_val * 1000.0
+                b_val = b_val * 1000.0
             signals["latency_p95_ms"] = ServiceSignal("latency_p95_ms", SignalStatus.AVAILABLE, p_val, b_val)
         else:
-            signals["latency_p95_ms"] = ServiceSignal("latency_p95_ms", SignalStatus.MISSING, value=10.0)
+            signals["latency_p95_ms"] = ServiceSignal("latency_p95_ms", SignalStatus.MISSING, value=None)
 
         # 4. Request rate / QPS
-        qps_series = find_series(["qps", "request_rate", "throughput", "requests"])
+        qps_series = find_series(["qps", "request_rate", "throughput", "requests", "load", "workload"])
         if qps_series is not None:
             pre_vals = [qps_series[i] for i, m in enumerate(pre_mask) if m and i < len(qps_series)]
             post_vals = [qps_series[i] for i, m in enumerate(post_mask) if m and i < len(qps_series)]
@@ -333,16 +398,16 @@ class RCAEvalAdapter:
             p_val = (sum(post_vals) / len(post_vals)) if post_vals else b_val
             signals["request_rate"] = ServiceSignal("request_rate", SignalStatus.AVAILABLE, p_val, b_val)
         else:
-            signals["request_rate"] = ServiceSignal("request_rate", SignalStatus.MISSING, value=50.0)
+            signals["request_rate"] = ServiceSignal("request_rate", SignalStatus.MISSING, value=None)
 
         missing = tuple(k for k, s in signals.items() if s.status is SignalStatus.MISSING)
 
         return NormalizedServiceObservation(
             service=service,
-            latency_p95_ms=float(signals["latency_p95_ms"].value or 0.0),
-            error_rate=float(signals["error_rate"].value or 0.0),
-            request_rate=float(signals["request_rate"].value or 0.0),
-            cpu_utilization=float(signals["cpu_utilization"].value or 0.0),
+            latency_p95_ms=signals["latency_p95_ms"].value,
+            error_rate=signals["error_rate"].value,
+            request_rate=signals["request_rate"].value,
+            cpu_utilization=signals["cpu_utilization"].value,
             signals=signals,
             missing_signals=missing,
         )
@@ -370,7 +435,7 @@ class RCAEvalAdapter:
             fault_type=meta.fault_type,
             inject_time=meta.inject_time,
             localized_services=down_or_degraded,
-            root_cause_hit=hit,
+            root_cause_detected=hit,
             state_classification=classified_states,
             signals_available=avail,
             signals_missing=missing,

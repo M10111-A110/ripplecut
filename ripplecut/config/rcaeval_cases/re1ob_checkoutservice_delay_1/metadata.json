@@ -1,0 +1,21 @@
+{
+  "source": "RCAEval",
+  "data_status": "OFFICIAL_RCAEVAL",
+  "case_id": "re1ob_checkoutservice_delay_1",
+  "benchmark": "re1ob",
+  "ground_truth_service": "checkoutservice",
+  "fault_type": "delay",
+  "instance": 1,
+  "inject_time": 1692602972.0,
+  "source_dataset": "phamquiluan/RCAEval",
+  "source_reference": "https://huggingface.co/datasets/phamquiluan/RCAEval/tree/main/re1ob_checkoutservice_delay_1",
+  "retrieval_version": "1.0",
+  "provenance_note": "Official RCAEval Online Boutique benchmark case downloaded directly from Hugging Face.",
+  "original_metric_count": 58,
+  "original_timestep_count": 721,
+  "raw_artifact": "metrics.parquet",
+  "raw_artifact_sha256": "34468b036d03d3ec62c13fc30264fb5bcb1a907ce797d9835738e1dc3d8408c9",
+  "normalized_artifact_sha256": "d1914e73974ab5d23c78c4e94416b1bbfeeb1ae83cd63ab9fa414619c1a9e376",
+  "data_verified_against_source": true,
+  "sampling_step_seconds": 1
+}

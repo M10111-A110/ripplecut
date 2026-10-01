@@ -1,11 +1,11 @@
 """Exhaustive vs Branch & Bound benchmark (master spec §94-§95). Measured values only.
 
 Two parts:
-  1. every canonical scenario (m = 8, 2^m = 256 candidates);
+  1. every canonical scenario (m = 7, 2^m = 128 candidates);
   2. seeded random instances of growing m (the oracle is run up to m = 16;
      above that only B&B is run and no equivalence claim is made).
 
-Every solver call goes through the same ExecutionGuard used in production and
+Every solver call goes through the same ExecutionGuard used in the application pipeline and
 every result is re-validated by the SafetyValidator. Runtimes are medians of
 ``repeats`` runs measured by the guard (wall clock, includes thread start).
 The benchmark names concrete solvers on purpose: comparing them is its job.
