@@ -29,9 +29,11 @@ MAX_RUNS = 200
 
 
 class DemoState:
-    def __init__(self, app: RippleCutApp, allow_fault_injection: bool = True) -> None:
+    def __init__(self, app: RippleCutApp, allow_fault_injection: bool = True,
+                 audit_dir: Optional[Path] = None) -> None:
         self.app = app
         self.allow_fault_injection = allow_fault_injection
+        self.audit_dir = audit_dir or Path("audit")
         self.runs: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         self.lock = threading.Lock()
 
@@ -66,7 +68,11 @@ def handle_api(state: DemoState, method: str, path: str, body: Dict[str, Any]) -
             fault = FaultSpec(mode=str(f.get("mode")), solver=f.get("solver"),
                               timeout_seconds=float(f.get("timeout_seconds", 1.5)))
         if body.get("scenario_id"):
-            report = app.run_scenario(str(body["scenario_id"]), fault=fault)
+            sid = str(body["scenario_id"])
+            if not any(s["id"] == sid for s in app.scenarios):
+                valid_ids = [s["id"] for s in app.scenarios]
+                raise RippleCutError(f"unknown scenario_id '{sid}'; valid scenarios: {valid_ids}", ErrorCode.CONFIG_ERROR)
+            report = app.run_scenario(sid, fault=fault)
         elif body.get("incident") is not None:
             report = app.run_incident(body["incident"], fault=fault)
         elif isinstance(body.get("text"), str):
@@ -81,19 +87,42 @@ def handle_api(state: DemoState, method: str, path: str, body: Dict[str, Any]) -
             raise RippleCutError("unknown run_id; run the planner first", ErrorCode.CONFIG_ERROR)
         if report.get("status") != "SUCCESS":
             raise RippleCutError("there is no recommended plan to approve for this run", ErrorCode.CONFIG_ERROR)
-        record = {"run_id": report["run_id"], "plan": report["result"]["plan"],
-                  "status": "APPROVED_SIMULATED", "executed": False,
-                  "approved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                  "note": "Simulated approval for the demo. RippleCut executed nothing; applying the plan to a real "
-                          "system is a separate, human-operated step outside this MVP."}
-        report["approval"] = {**report.get("approval", {}), **record}
+
+        res = report.get("result", {}) or {}
+        obj = res.get("objective")
+        scenario_id = (report.get("incident", {}) or {}).get("scenario_id") or report.get("scenario_id") or report.get("problem_id", "")
+        solver_used = res.get("selected_solver") or (report.get("planner", {}) or {}).get("selected_solver") or "unknown"
+        optimality = res.get("optimality_status", "UNKNOWN")
+        val_status = res.get("validation_status") or ("VALID" if (report.get("validation", {}) or {}).get("valid") else "INVALID")
+
+        record = {
+            "run_id": report["run_id"],
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "scenario_id": scenario_id,
+            "incident_id": report.get("problem_id", ""),
+            "plan": res.get("plan"),
+            "objective": obj,
+            "solver": solver_used,
+            "optimality_status": optimality,
+            "validation_status": val_status,
+            "status": "APPROVED_SIMULATED",
+            "approval_status": "APPROVED_SIMULATED",
+            "executed": False,
+            "approved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "note": "Simulated approval for the demo. RippleCut executed nothing; applying the plan to a real "
+                    "system is a separate, human-operated step outside this MVP."
+        }
+        # Persist audit record. Do not silently swallow persistence errors.
+        audit_dir = getattr(state, "audit_dir", Path("audit"))
         try:
-            audit_dir = Path("audit")
             audit_dir.mkdir(parents=True, exist_ok=True)
             with (audit_dir / "approvals.jsonl").open("a", encoding="utf-8") as f:
                 f.write(json.dumps(record) + "\n")
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RippleCutError(f"Audit log persistence failed: {exc}; approval cannot be recorded",
+                                 ErrorCode.INTERNAL_ERROR) from exc
+
+        report["approval"] = {**report.get("approval", {}), **record}
         return record
     raise RippleCutError(f"no route {method} {path}", ErrorCode.CONFIG_ERROR, {"http_status": 404})
 
@@ -169,8 +198,9 @@ def make_handler(state: DemoState):
     return Handler
 
 
-def serve(app: RippleCutApp, host: str = "127.0.0.1", port: int = 8765) -> None:
-    server = ThreadingHTTPServer((host, port), make_handler(DemoState(app)))
+def serve(app: RippleCutApp, host: str = "127.0.0.1", port: int = 8765,
+          allow_fault_injection: bool = False) -> None:
+    server = ThreadingHTTPServer((host, port), make_handler(DemoState(app, allow_fault_injection=allow_fault_injection)))
     print(f"RippleCut demo UI (offline) at http://{host}:{port}/  - Ctrl+C to stop")
     try:
         server.serve_forever()

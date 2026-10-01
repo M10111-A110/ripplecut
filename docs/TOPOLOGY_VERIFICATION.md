@@ -63,22 +63,37 @@ State meaning used by the model: frontend: x=1 iff the storefront browse path (h
 
 ## Interventions (RIPPLECUT-MODELED, hypothetical)
 
-None of these mechanisms exists in Online Boutique (PDF §7.1); their effects and costs are model parameters.
+None of these mechanisms exists in Online Boutique (PDF §7.1); their effects and costs are model parameters. All actions are classified with `exists_in_online_boutique: false`.
 
-| action | cost | effect | precondition on x(0) | label |
-|---|---|---|---|---|
-| checkout_backend_standby | 5 | paymentservice UP, shippingservice UP | none | RIPPLECUT-MODELED CONTAINMENT ACTION |
-| payment_fallback | 3 | paymentservice UP | paymentservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
-| restart_checkoutservice | 1 | checkoutservice UP | checkoutservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
-| restart_emailservice | 1 | emailservice UP | emailservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
-| restore_currency_replica | 2 | currencyservice UP | currencyservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
-| restore_productcatalog_replica | 4 | productcatalogservice UP | productcatalogservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
-| shipping_fallback | 2 | shippingservice UP | shippingservice DOWN | RIPPLECUT-MODELED CONTAINMENT ACTION |
+| action ID | name | cost | effect | precondition on x(0) | exists in Online Boutique | operational interpretation |
+|---|---|---|---|---|---|---|
+| `checkout_backend_standby` | Switch checkout backends to a modeled standby deployment | 5 | paymentservice UP, shippingservice UP | none | false | Point checkout's payment and shipping calls at a hypothetical standby deployment. Modeled effect: paymentservice and shippingservice become UP. |
+| `payment_fallback` | Fail over payments to a modeled fallback path | 3 | paymentservice UP | paymentservice DOWN | false | Route PaymentService.Charge to a hypothetical fallback payment path. Modeled effect: paymentservice becomes UP. |
+| `restart_checkoutservice` | Restart checkoutservice | 1 | checkoutservice UP | checkoutservice DOWN | false | Modeled effect: checkoutservice becomes UP. It stays UP only if its modeled dependencies are UP (the cascade re-runs after every intervention). |
+| `restart_emailservice` | Restart emailservice | 1 | emailservice UP | emailservice DOWN | false | Modeled effect: emailservice becomes UP. |
+| `restore_currency_replica` | Restore currency conversion from a modeled standby replica | 2 | currencyservice UP | currencyservice DOWN | false | Serve conversions from a hypothetical standby replica. Modeled effect: currencyservice becomes UP. |
+| `restore_productcatalog_replica` | Restore product catalog from a modeled standby replica | 4 | productcatalogservice UP | productcatalogservice DOWN | false | Serve catalog reads from a hypothetical standby replica. Modeled effect: productcatalogservice becomes UP. |
+| `shipping_fallback` | Fail over shipping to a modeled fallback path | 2 | shippingservice UP | shippingservice DOWN | false | Route shipping quote/ship calls to a hypothetical fallback path. Modeled effect: shippingservice becomes UP. |
+
+Total modeled interventions: 7 actions (search space $2^m = 2^7 = 128$ combinations).
+
 
 Declared conflicts:
 
 * checkout_backend_standby + payment_fallback: INVALID_COMBINATION — Both redirect payment traffic; the model defines no composition, so the combination is rejected before simulation.
 * checkout_backend_standby + shipping_fallback: INVALID_COMBINATION — Both redirect shipping traffic; the model defines no composition, so the combination is rejected before simulation.
+
+## Cartservice and Incompleteness of the Action Universe
+
+In the canonical Online Boutique topology, `cartservice` is designated as a critical service ($C_{min}=7$). However, the modeled action universe contains **no action** that restores or bypasses `cartservice` (e.g., no in-memory fallback, no local cart cache, no bypass mechanism).
+
+Consequently, when `cartservice` fails:
+
+1. Every candidate action subset $B \subseteq \mathcal{A}$ leaves `cartservice` DOWN.
+2. The cascade fixed point $\Phi(T_B(x(0)))$ satisfies $C(B) < C_{min}$, failing the critical preservation requirement.
+3. RippleCut's exact solvers and validator prove that **no feasible plan exists** (`NO_FEASIBLE_PLAN`), certified by the monotonic upper bound certificate $\bar{C} < C_{min}$.
+
+This is an intentional and certified architectural property of RippleCut: RippleCut strictly respects the finite action universe and never hallucinates or fabricates non-existent recovery mechanisms ('magic buttons') when an incident is uncontainable under the available operational controls.
 
 ## What is not claimed
 

@@ -19,7 +19,7 @@ RippleCut was built greenfield in Python, using the standard library only at run
   explanations, simulated human approval, a CLI, and an offline local UI.
 - **Scenarios.** Eight canonical scenarios on one Online Boutique topology.
 
-Status: **791 tests pass**, and all 12 implementation gates pass. All 8 scenarios match their hand-derived
+Status: **845 tests pass**, and all 12 implementation gates pass. All 8 scenarios match their hand-derived
 expectations. B&B matched the exhaustive oracle in every comparison: 8 canonical scenarios and 170 seeded random
 instances in the benchmark, plus differential testing against an independent Reference Oracle (`tests/reference_oracle.py`).
 
@@ -28,11 +28,11 @@ instances in the benchmark, plus differential testing against an independent Ref
 This is a new repository; no prior code existed. The layout is:
 
 ```
-config/    canonical model (11 services, 9 hard + 6 soft edges, 8 actions, 3 conflicts), solver policy,
-           8 scenarios, SYNTHETIC replay fixture
+config/    canonical model (11 services, 9 hard + 6 soft edges, 7 actions, 3 conflicts), solver policy,
+           8 scenarios, SYNTHETIC replay fixture, RCAEval cases
 ripplecut/ engine, model, solvers, validation, incident, evidence, explain, pipeline, cli, benchmark,
            generators, ui
-tests/     14 test modules, 756 tests
+tests/     15 test modules, 845 tests
 docs/      architecture, mathematics, topology verification, validation report, benchmark, judge Q&A,
            document classification, this report
 scripts/   generators for TOPOLOGY_VERIFICATION.md and VALIDATION_REPORT.md
@@ -208,7 +208,7 @@ runs everything in the terminal. The demo works with sockets blocked, as tested.
 
 ## 17. Test Coverage
 
-791 tests in 16 modules (`docs/VALIDATION_REPORT.md`) cover:
+845 tests in 16 modules (`docs/VALIDATION_REPORT.md`) cover:
 
 - master spec §62: rules, cascade, interventions, objective, solvers, validator, LLM, reproducibility;
 - master spec §63 property tests: B&B equivalence, determinism, validator consistency, termination,
@@ -216,7 +216,7 @@ runs everything in the terminal. The demo works with sockets blocked, as tested.
 - all 20 edge cases of §64;
 - the §114–§122 tests;
 - differential verification against the independent Reference Oracle (`tests/reference_oracle.py`);
-- real inspected RCAEval adapter tests (`tests/test_rcaeval_adapter.py`);
+- real inspected RCAEval adapter tests (`tests/test_rcaeval_adapter.py`) with anti-leakage guarantees;
 - safe incident parsing with temporal qualifiers, recovery, uncertainty, and retractions;
 - the canonical scenarios end-to-end, including natural language, the UI API contract, structured logging, and
   the offline demo.
@@ -248,15 +248,14 @@ remains exponential.
 - **Guard.** Python threads cannot be killed; an uncooperative solver is abandoned but keeps consuming CPU
   until it finishes.
 - **Cross-check.** The exact cross-check runs only for `m ≤ 12`.
-- **Packaging.** Configuration is read from the repository's `config/` directory; run from the repo root.
+- **Packaging.** Configuration is bundled inside `ripplecut.config` package data with automatic fallback via `resolve_config_path`, supporting both repo-root execution and standard pip install / external working directory execution.
 
 ## 20. Remaining Risks
 
 - **Presentation.** Judges may read modeled rules as Online Boutique facts; every label says otherwise, but the
   presenter must repeat it.
 - **Real LLM path.** It is untested against the live API.
-- **RCAEval.** Case integration awaits access to real data; the adapter will need its metric mapping written
-  after inspecting a case.
+- **RCAEval.** Real RCAEval cases for cartservice, paymentservice, and shippingservice are integrated with explicit metadata, anti-leakage guarantees, and SignalStatus classification for missing metrics. Additional fault cases can be added following the same adapter pattern.
 - **B&B performance.** It is characterized only on small or random models. Adversarial instances can approach
   `2^m`.
 - **UI.** It was visually checked in Chromium only.
@@ -277,7 +276,7 @@ python -m ripplecut benchmark --out docs/BENCHMARK.md
 
 ```bash
 pip install pytest
-python -m pytest                              # 756 passed in ~8 s on the build machine
+python -m pytest                              # 845 passed in ~8 s on the build machine
 python scripts/gen_validation_report.py       # regenerates docs/VALIDATION_REPORT.md from a real run
 ```
 

@@ -110,9 +110,9 @@ def test_cli_commands(capsys):
     assert cli.main(["scenarios"]) == 0
 
 
-def test_ui_api_contract(app):
+def test_ui_api_contract(app, tmp_path):
     """The UI is a view over run reports; approval is simulated and executes nothing (§72)."""
-    state = DemoState(app)
+    state = DemoState(app, audit_dir=tmp_path / "audit")
     model = handle_api(state, "GET", "/api/model", {})
     assert len(model["services"]) == 11 and model["rule_semantics_label"] == "RIPPLECUT-MODELED RULE"
     assert handle_api(state, "POST", "/api/parse", {"text": "paymentservice is down"})["status"] == "OK"

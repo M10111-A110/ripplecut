@@ -106,3 +106,83 @@ def test_validator_consistency_property(bundle):
         assert v.valid
         o = v.recomputed_objective
         assert (Fraction(res.cost), res.intervention_count, res.residual_failures) == (o.cost, o.count, o.residual)
+
+
+def test_heuristic_solver_falsely_claiming_proven_optimal_is_downgraded(bundle):
+    """Orchestrator enforces that heuristic solvers can never claim PROVEN_OPTIMAL."""
+    from ripplecut.model.schema import ResourceLimits
+    from ripplecut.solvers.base import Solver, SolverCapabilities
+    from ripplecut.solvers.orchestrator import SolverOrchestrator
+    from ripplecut.solvers.policy import SolverPolicy
+    from ripplecut.solvers.registry import SolverRegistry
+
+    class LyingHeuristicSolver(Solver):
+        name = "lying_heuristic"
+        capabilities = SolverCapabilities(kind=SolverKind.HEURISTIC)
+
+        def solve(self, problem, context):
+            return SolverResult(
+                solver_name="lying_heuristic",
+                status=SolverStatus.SUCCESS,
+                selected_plan=("payment_fallback",),
+                cost=Fraction(3),
+                intervention_count=1,
+                residual_failures=0,
+                critical_services_preserved=7,
+                optimality_status=OptimalityStatus.PROVEN_OPTIMAL,
+                search_complete=True,
+            )
+
+    p = make_problem(bundle, ["paymentservice"])
+    reg = SolverRegistry()
+    reg.register(LyingHeuristicSolver())
+    policy = SolverPolicy(
+        enabled=("lying_heuristic",),
+        primary=("lying_heuristic",),
+        fallback=(),
+        limits=ResourceLimits(),
+    )
+    orch = SolverOrchestrator(reg, policy)
+    res = orch.solve(p)
+    assert res.status == "SUCCESS"
+    assert res.optimality_status == OptimalityStatus.HEURISTIC
+    assert "heuristic solver lying_heuristic" in res.optimality_basis
+
+
+def test_all_validator_corruption_modes_individually_asserted(good):
+    """Explicitly verify that each of the validator checks detects its corresponding corruption mode."""
+    p, res = good
+
+    # Check 1: None plan
+    v1 = V.validate(p, replace(res, selected_plan=None), SolverKind.EXACT)
+    assert not v1.valid and "1_plan_exists" in _failed_checks(v1)
+
+    # Check 2: Unknown action
+    v2 = V.validate(p, replace(res, selected_plan=("nonexistent_action_xyz",)), SolverKind.EXACT)
+    assert not v2.valid and "2_actions_known" in _failed_checks(v2)
+
+    # Check 3: Illegal combination (precondition unmet or conflict)
+    v3 = V.validate(p, replace(res, selected_plan=("restart_checkoutservice",)), SolverKind.EXACT)
+    assert not v3.valid and "3_combination_legal" in _failed_checks(v3)
+
+    # Check 6: Critical services left down
+    v6 = V.validate(p, replace(res, selected_plan=()), SolverKind.EXACT)
+    assert not v6.valid and "6_critical_services" in _failed_checks(v6)
+
+    # Check 7: Wrong cost
+    v7 = V.validate(p, replace(res, cost=Fraction(99)), SolverKind.EXACT)
+    assert not v7.valid and "7_cost" in _failed_checks(v7)
+
+    # Check 8: Wrong intervention count
+    v8 = V.validate(p, replace(res, intervention_count=99), SolverKind.EXACT)
+    assert not v8.valid and "8_intervention_count" in _failed_checks(v8)
+
+    # Check 9: Wrong residual failures
+    v9 = V.validate(p, replace(res, residual_failures=99), SolverKind.EXACT)
+    assert not v9.valid and "9_residual_failures" in _failed_checks(v9)
+
+    # Check 10: Altered final state
+    bad_state = dict(res.final_state, frontend=0)
+    v10 = V.validate(p, replace(res, final_state=bad_state), SolverKind.EXACT)
+    assert not v10.valid and "10_reported_vs_recomputed" in _failed_checks(v10)
+

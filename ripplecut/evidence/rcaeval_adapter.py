@@ -52,6 +52,9 @@ class RCAEvalCaseMetadata:
     fault_type: str
     instance: int
     inject_time: float
+    source: str = "RCAEval"
+    source_reference: str = "https://github.com/phamquiluan/RCAEval"
+    retrieval_version: str = "1.0"
 
 
 @dataclass(frozen=True)
@@ -150,14 +153,44 @@ class RCAEvalAdapter:
         if not case_dir.is_dir():
             raise DataAdapterError(f"RCAEval case directory not found: {case_dir}")
 
-        inject_file = case_dir / "inject_time.txt"
-        if not inject_file.exists():
-            raise DataAdapterError(f"RCAEval case missing inject_time.txt in {case_dir}")
+        metadata_file = case_dir / "metadata.json"
+        if metadata_file.exists():
+            try:
+                meta_json = json.loads(metadata_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                raise DataAdapterError(f"Failed to parse metadata.json in {case_dir}: {exc}") from None
+            metadata = RCAEvalCaseMetadata(
+                case_id=str(meta_json.get("case_id", case_dir.name)),
+                case_dir=str(case_dir),
+                benchmark=str(meta_json.get("benchmark", "re1ob")),
+                ground_truth_service=str(meta_json.get("ground_truth_service", "")),
+                fault_type=str(meta_json.get("fault_type", "unknown")),
+                instance=int(meta_json.get("instance", 1)),
+                inject_time=float(meta_json.get("inject_time", 0.0)),
+                source=str(meta_json.get("source", "RCAEval")),
+                source_reference=str(meta_json.get("source_reference", "https://github.com/phamquiluan/RCAEval")),
+                retrieval_version=str(meta_json.get("retrieval_version", "1.0")),
+            )
+        else:
+            inject_file = case_dir / "inject_time.txt"
+            if not inject_file.exists():
+                raise DataAdapterError(f"RCAEval case missing inject_time.txt or metadata.json in {case_dir}")
 
-        try:
-            inject_time = float(inject_file.read_text(encoding="utf-8").strip())
-        except (ValueError, TypeError) as exc:
-            raise DataAdapterError(f"Invalid timestamp in {inject_file}: {exc}") from None
+            try:
+                inject_time = float(inject_file.read_text(encoding="utf-8").strip())
+            except (ValueError, TypeError) as exc:
+                raise DataAdapterError(f"Invalid timestamp in {inject_file}: {exc}") from None
+
+            benchmark, service, fault, instance = parse_case_directory_name(case_dir.name)
+            metadata = RCAEvalCaseMetadata(
+                case_id=case_dir.name,
+                case_dir=str(case_dir),
+                benchmark=benchmark,
+                ground_truth_service=service,
+                fault_type=fault,
+                instance=instance,
+                inject_time=inject_time,
+            )
 
         metrics_file = case_dir / "metrics.json"
         if not metrics_file.exists():
@@ -167,17 +200,6 @@ class RCAEvalAdapter:
             raw_metrics = json.loads(metrics_file.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             raise DataAdapterError(f"Failed to parse metrics.json in {case_dir}: {exc}") from None
-
-        benchmark, service, fault, instance = parse_case_directory_name(case_dir.name)
-        metadata = RCAEvalCaseMetadata(
-            case_id=case_dir.name,
-            case_dir=str(case_dir),
-            benchmark=benchmark,
-            ground_truth_service=service,
-            fault_type=fault,
-            instance=instance,
-            inject_time=inject_time,
-        )
 
         return self._normalize_metrics(raw_metrics, metadata)
 

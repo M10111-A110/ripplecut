@@ -1,0 +1,11 @@
+{
+  "source": "RCAEval",
+  "case_id": "re1ob_cartservice_cpu_1",
+  "benchmark": "re1ob",
+  "ground_truth_service": "cartservice",
+  "fault_type": "cpu",
+  "instance": 1,
+  "inject_time": 1692569340.0,
+  "source_reference": "https://github.com/phamquiluan/RCAEval / https://huggingface.co/datasets/rcaeval/rcaeval",
+  "retrieval_version": "1.0"
+}

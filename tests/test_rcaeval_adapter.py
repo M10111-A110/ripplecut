@@ -124,3 +124,59 @@ def test_rcaeval_case_source_integration(bundle):
 def test_rcaeval_case_missing_directory(bundle):
     with pytest.raises(DataAdapterError, match="not found"):
         RCAEvalCaseSource(Path("nonexistent_case_dir"), system=bundle.system).load()
+
+
+def test_rcaeval_metadata_and_anti_leakage(bundle, tmp_path):
+    """Anti-leakage proof: ground_truth_service has zero impact on state estimation or normalized signals."""
+    case_dir = CASES_DIR / "re1ob_cartservice_cpu_1"
+    adapter = RCAEvalAdapter(bundle.system, bundle.state_estimation)
+    case_data_real = adapter.load_case(case_dir)
+
+    # Verify structured metadata fields
+    assert case_data_real.metadata.source == "RCAEval"
+    assert "github.com/phamquiluan/RCAEval" in case_data_real.metadata.source_reference
+    assert case_data_real.metadata.retrieval_version == "1.0"
+    assert case_data_real.metadata.ground_truth_service == "cartservice"
+
+    estimator = StateEstimator(bundle.state_estimation)
+    obs_real = {sid: o.to_observation_dict() for sid, o in case_data_real.normalized_observations.items()}
+    state_real = estimator.estimate(bundle.system, obs_real, source="RCAEval")
+
+    # Create a corrupted/altered case directory where ground_truth_service is completely changed or bogus
+    corrupt_dir = tmp_path / "re1ob_bogusservice_fault_1"
+    corrupt_dir.mkdir()
+    (corrupt_dir / "inject_time.txt").write_text("1692569340\n", encoding="utf-8")
+    (corrupt_dir / "metrics.json").write_text((case_dir / "metrics.json").read_text(encoding="utf-8"), encoding="utf-8")
+    (corrupt_dir / "metadata.json").write_text(
+        '{"source": "RCAEval", "case_id": "corrupt_1", "benchmark": "re1ob", '
+        '"ground_truth_service": "totally_irrelevant_service", "fault_type": "cpu", '
+        '"instance": 1, "inject_time": 1692569340.0, "source_reference": "ref", "retrieval_version": "1.0"}',
+        encoding="utf-8"
+    )
+
+    case_data_corrupt = adapter.load_case(corrupt_dir)
+    assert case_data_corrupt.metadata.ground_truth_service == "totally_irrelevant_service"
+
+    # 1. Observations must be strictly identical across all services
+    obs_corrupt = {sid: o.to_observation_dict() for sid, o in case_data_corrupt.normalized_observations.items()}
+    assert obs_real == obs_corrupt
+
+    for sid in bundle.system.service_ids:
+        real_sig = case_data_real.normalized_observations[sid]
+        corrupt_sig = case_data_corrupt.normalized_observations[sid]
+        assert real_sig.latency_p95_ms == corrupt_sig.latency_p95_ms
+        assert real_sig.error_rate == corrupt_sig.error_rate
+        assert real_sig.cpu_utilization == corrupt_sig.cpu_utilization
+        assert real_sig.request_rate == corrupt_sig.request_rate
+        assert real_sig.missing_signals == corrupt_sig.missing_signals
+
+    # 2. Estimated state must be strictly identical
+    state_corrupt = estimator.estimate(bundle.system, obs_corrupt, source="RCAEval")
+    assert state_real.formal_state(bundle.system) == state_corrupt.formal_state(bundle.system)
+    assert state_real.descriptive() == state_corrupt.descriptive()
+
+    # 3. Only evaluate_rca (reporting layer) uses ground_truth_service, and it correctly reports a miss
+    report_corrupt = adapter.evaluate_rca(case_data_corrupt, state_corrupt.descriptive())
+    assert report_corrupt.ground_truth_service == "totally_irrelevant_service"
+    assert report_corrupt.root_cause_hit is False  # missed because ground truth was bogus
+

@@ -74,3 +74,60 @@ def test_rcaeval_adapter_refuses_to_guess(tmp_path):
     (case / "metrics.json").write_text("{}")
     with pytest.raises(DataAdapterError, match="REQUIRES VERIFICATION"):
         RCAEvalCaseSource(case).load()
+
+
+def test_state_estimation_telemetry_hardening(bundle):
+    """Rigorous verification of telemetry edge cases: NaN, inf, zero request rate, conflicting signals."""
+    est = StateEstimator(bundle.state_estimation)
+    valid_obs = {
+        sid: {"latency_p95_ms": 20.0, "error_rate": 0.0, "request_rate": 100.0, "cpu_utilization": 0.2}
+        for sid in bundle.system.service_ids
+    }
+
+    # 1. NaN and Infinity rejection
+    for bad_val in (float("nan"), float("inf"), float("-inf")):
+        for field in ("latency_p95_ms", "error_rate", "request_rate", "cpu_utilization"):
+            corrupt = {**valid_obs, "cartservice": {**valid_obs["cartservice"], field: bad_val}}
+            with pytest.raises(DataAdapterError, match="must be a finite nonnegative number"):
+                est.estimate(bundle.system, corrupt, "test")
+
+    # 2. Empty observations mapping
+    with pytest.raises(DataAdapterError, match="missing observation"):
+        est.estimate(bundle.system, {}, "test")
+
+    # 3. Missing metric fields within a service observation
+    for field in ("latency_p95_ms", "error_rate", "request_rate", "cpu_utilization"):
+        bad_service_obs = {k: v for k, v in valid_obs["cartservice"].items() if k != field}
+        corrupt = {**valid_obs, "cartservice": bad_service_obs}
+        with pytest.raises(DataAdapterError, match="missing"):
+            est.estimate(bundle.system, corrupt, "test")
+
+    # 4. Zero request rate is valid and does NOT cause service to be marked DOWN or DEGRADED
+    zero_qps = {**valid_obs, "cartservice": {**valid_obs["cartservice"], "request_rate": 0.0}}
+    res = est.estimate(bundle.system, zero_qps, "test")
+    assert res.descriptive()["cartservice"] == UP
+    assert res.formal_state(bundle.system)[bundle.system.index("cartservice")] == 1
+
+    # 5. Conflicting signals: high latency or high CPU but zero error rate -> DEGRADED, NOT DOWN
+    high_latency = {
+        **valid_obs,
+        "cartservice": {**valid_obs["cartservice"], "latency_p95_ms": 1500.0, "error_rate": 0.0}
+    }
+    res_lat = est.estimate(bundle.system, high_latency, "test")
+    assert res_lat.descriptive()["cartservice"] == DEGRADED
+
+    high_cpu = {
+        **valid_obs,
+        "cartservice": {**valid_obs["cartservice"], "cpu_utilization": 0.95, "error_rate": 0.0}
+    }
+    res_cpu = est.estimate(bundle.system, high_cpu, "test")
+    assert res_cpu.descriptive()["cartservice"] == DEGRADED
+
+    # DOWN requires error_rate >= down_error_rate_gte (0.5 by default)
+    down_err = {
+        **valid_obs,
+        "cartservice": {**valid_obs["cartservice"], "error_rate": 0.55}
+    }
+    res_down = est.estimate(bundle.system, down_err, "test")
+    assert res_down.descriptive()["cartservice"] == DOWN
+

@@ -44,17 +44,31 @@ def main() -> None:
     L.append("\nState meaning used by the model: " + "; ".join(f"{k}: {v}" for k, v in meta["state_meaning"].items()))
     L.append("\n## Interventions (RIPPLECUT-MODELED, hypothetical)\n")
     L.append("None of these mechanisms exists in Online Boutique (PDF §7.1); their effects and costs are model "
-             "parameters.\n")
-    L.append("| action | cost | effect | precondition on x(0) | label |")
-    L.append("|---|---|---|---|---|")
+             "parameters. All actions are classified with `exists_in_online_boutique: false`.\n")
+    L.append("| action ID | name | cost | effect | precondition on x(0) | exists in Online Boutique | operational interpretation |")
+    L.append("|---|---|---|---|---|---|---|")
     for a in b.actions.interventions:
         eff = ", ".join([f"{x} UP" for x in sorted(a.effect.set_up)] + [f"{x} DOWN" for x in sorted(a.effect.set_down)])
         pre = ", ".join(f"{p.service} {'UP' if p.state else 'DOWN'}" for p in a.preconditions) or "none"
-        L.append(f"| {a.id} | {a.cost} | {eff} | {pre} | {a.metadata.get('label', '')} |")
+        exists = "false" if not a.metadata.get("exists_in_online_boutique", False) else "true"
+        op_interp = a.metadata.get("operational_interpretation") or a.description
+        L.append(f"| `{a.id}` | {a.name} | {a.cost} | {eff} | {pre} | {exists} | {op_interp} |")
+    L.append(f"\nTotal modeled interventions: {len(b.actions.interventions)} actions (search space $2^m = 2^{len(b.actions.interventions)} = {1 << len(b.actions.interventions)}$ combinations).\n")
     L.append("\nDeclared conflicts:\n")
     for c in b.actions.conflicts.values():
         L.append(f"* {' + '.join(sorted(c.actions))}: {c.resolution.value} — {c.rationale}")
-    L.append("\n## What is not claimed\n")
+
+    L.append("\n## Cartservice and Incompleteness of the Action Universe\n")
+    L.append("In the canonical Online Boutique topology, `cartservice` is designated as a critical service ($C_{min}=7$). "
+             "However, the modeled action universe contains **no action** that restores or bypasses `cartservice` "
+             "(e.g., no in-memory fallback, no local cart cache, no bypass mechanism).\n")
+    L.append("Consequently, when `cartservice` fails:\n")
+    L.append("1. Every candidate action subset $B \\subseteq \\mathcal{A}$ leaves `cartservice` DOWN.")
+    L.append("2. The cascade fixed point $\\Phi(T_B(x(0)))$ satisfies $C(B) < C_{min}$, failing the critical preservation requirement.")
+    L.append("3. RippleCut's exact solvers and validator prove that **no feasible plan exists** (`NO_FEASIBLE_PLAN`), certified by the monotonic upper bound certificate $\\bar{C} < C_{min}$.\n")
+    L.append("This is an intentional and certified architectural property of RippleCut: RippleCut strictly respects the finite action universe and never hallucinates or fabricates non-existent recovery mechanisms ('magic buttons') when an incident is uncontainable under the available operational controls.\n")
+
+    L.append("## What is not claimed\n")
     L.append("* No claim that PlaceOrder or the home page behave exactly like these Boolean rules in production "
              "(timeouts, retries, partial rendering and caching are not modeled).")
     L.append("* No 2-of-3 or quorum rule is claimed for Online Boutique; OR/THRESHOLD/GROUP are generic model "

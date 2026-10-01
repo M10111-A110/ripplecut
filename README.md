@@ -43,7 +43,7 @@ the structured JSON log events to stderr.
 
 ```bash
 pip install pytest            # the only non-stdlib dependency, test-time only
-python -m pytest              # 791 tests; ~9 s on the build machine
+python -m pytest              # 845 tests; ~8 s on the build machine
 ```
 
 ## Canonical scenarios

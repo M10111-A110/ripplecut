@@ -1,0 +1,11 @@
+{
+  "source": "RCAEval",
+  "case_id": "re1ob_paymentservice_delay_1",
+  "benchmark": "re1ob",
+  "ground_truth_service": "paymentservice",
+  "fault_type": "delay",
+  "instance": 1,
+  "inject_time": 1692569340.0,
+  "source_reference": "https://github.com/phamquiluan/RCAEval / https://huggingface.co/datasets/rcaeval/rcaeval",
+  "retrieval_version": "1.0"
+}

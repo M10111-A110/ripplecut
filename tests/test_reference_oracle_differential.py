@@ -20,7 +20,8 @@ from typing import List, Tuple
 import pytest
 
 from conftest import action, build, hard, make_problem, rule, soft
-from reference_oracle import reference_solve
+from reference_oracle import reference_cascade, reference_solve
+from ripplecut.engine.simulator import simulate
 from ripplecut.generators import random_problem
 from ripplecut.model.schema import (
     ContainmentProblem,
@@ -232,3 +233,13 @@ def test_oracle_vs_solvers_randomized(seed: int):
     problem, _ = random_problem(seed=seed, n_services=5, m_actions=5, n_failures=(1, 2), plant_restorers=True)
     oracle, res_ex, res_bnb_bf, res_bnb_df = _solve_with_solvers(problem)
     _assert_agreement(oracle, res_ex, res_bnb_bf, res_bnb_df)
+
+
+@pytest.mark.parametrize("seed", list(range(100, 150)))
+def test_optimized_cascade_vs_reference_cascade_randomized(seed: int):
+    """Randomized cascade equivalence: ripplecut.engine.simulator.simulate == reference_cascade across 50 models."""
+    problem, _ = random_problem(seed=seed, n_services=6, m_actions=4, n_failures=(1, 3))
+    sim_res = simulate(problem.system, problem.initial_state)
+    ref_final_state = reference_cascade(problem.system, problem.initial_state)
+    assert sim_res.final_state == ref_final_state
+
